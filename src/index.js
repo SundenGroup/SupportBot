@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Collection, Events, ButtonStyle, ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, Events, ButtonStyle, ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits, AttachmentBuilder, ChannelType } = require('discord.js');
 const { token } = require('./config.json');
 const TicketManager = require('./managers/TicketManager');
 const CommandHandler = require('./handlers/CommandHandler');
@@ -32,13 +32,96 @@ for (const file of commandFiles) {
 // Initialize ticket manager
 client.tickets = new TicketManager(client);
 
+// Function to create support channel
+async function createSupportChannel(guild) {
+    console.log(`Creating support channel in guild: ${guild.name}`);
+    
+    // Check if support channel already exists
+    const existingChannel = guild.channels.cache.find(
+        channel => channel.name === '🎫-support-tickets'
+    );
+    
+    if (existingChannel) {
+        console.log(`Support channel already exists in ${guild.name}`);
+        return existingChannel;
+    }
+    
+    // Create the support channel
+    const channel = await guild.channels.create({
+        name: '🎫-support-tickets',
+        type: ChannelType.GuildText,
+        topic: 'Create a support ticket here',
+        permissionOverwrites: [
+            {
+                id: guild.id,
+                allow: [PermissionFlagsBits.ViewChannel],
+                deny: [PermissionFlagsBits.SendMessages]
+            },
+            {
+                id: client.user.id,
+                allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.ManageMessages
+                ]
+            }
+        ]
+    });
+    
+    // Create the support ticket button
+    const button = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('create_support')
+                .setLabel('Open Support Ticket')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🎫')
+        );
+    
+    // Create the embed
+    const embed = new EmbedBuilder()
+        .setTitle('Support Ticket')
+        .setDescription('Need help? Click the button below to open a support ticket. Our team will assist you as soon as possible.')
+        .setColor('#5865F2')
+        .setFooter({ text: 'Support Ticket System' })
+        .setTimestamp();
+    
+    // Send the message with the button
+    await channel.send({
+        embeds: [embed],
+        components: [button]
+    });
+    
+    console.log(`Support ticket channel created: ${channel.name} (${channel.id})`);
+    return channel;
+}
+
 // Event handlers
 client.once('ready', async () => {
     try {
         await client.tickets.init(); // Initialize ticket manager
         console.log(`Logged in as ${client.user.tag}`);
+        
+        // Create support channels in all guilds
+        for (const [guildId, guild] of client.guilds.cache) {
+            try {
+                await createSupportChannel(guild);
+            } catch (error) {
+                console.error(`Error creating support channel in ${guild.name}:`, error);
+            }
+        }
     } catch (error) {
         console.error('Failed to initialize:', error);
+    }
+});
+
+// Handle guild join event
+client.on(Events.GuildCreate, async (guild) => {
+    try {
+        console.log(`Joined new guild: ${guild.name}`);
+        await createSupportChannel(guild);
+    } catch (error) {
+        console.error(`Error creating support channel in new guild ${guild.name}:`, error);
     }
 });
 
@@ -60,10 +143,10 @@ client.on(Events.InteractionCreate, async interaction => {
             await command.execute(interaction);
         } 
         else if (interaction.isButton()) {
-            const [action, ticketId] = interaction.customId.split('_');
+            const customId = interaction.customId;
             
-            if (action === 'create') {
-                const type = ticketId; // match, room, or support
+            if (customId.startsWith('create_')) {
+                const type = customId.split('_')[1]; // match, room, or support
                 
                 // Create and show modal for channel name input
                 const modal = new ModalBuilder()
@@ -74,7 +157,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     .setCustomId('name_input')
                     .setLabel(`Enter ${type} name`)
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder(`Enter a name for your ${type}`)
+                    .setPlaceholder(`Enter a name for your ${type} channel`)
                     .setRequired(true)
                     .setMinLength(3)
                     .setMaxLength(32);
@@ -83,7 +166,79 @@ client.on(Events.InteractionCreate, async interaction => {
                 modal.addComponents(firstActionRow);
 
                 await interaction.showModal(modal);
-            } else if (action === 'transcribe') {
+            } 
+            else if (customId.startsWith('confirm_transcript_')) {
+                await interaction.deferUpdate();
+                
+                try {
+                    // Extract ticket ID and channel ID from the custom ID
+                    const parts = customId.split('_');
+                    const ticketId = parts[2];
+                    const channelId = parts[3];
+                    
+                    const channel = await interaction.guild.channels.fetch(channelId);
+                    
+                    if (!channel) {
+                        await interaction.editReply({
+                            content: 'Selected channel no longer exists. Please try again.',
+                            components: []
+                        });
+                        return;
+                    }
+                    
+                    // Get the ticket data first to check if it exists
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.editReply({
+                            content: 'Ticket not found or has been deleted.',
+                            components: []
+                        });
+                        return;
+                    }
+                    
+                    // Generate transcript without saving messages (which causes the UNIQUE constraint error)
+                    const messages = await interaction.channel.messages.fetch({ limit: 100 });
+                    const transcript = `Transcript for ${ticket.type}-${ticket.name}\n` +
+                        `Created by: ${interaction.guild.members.cache.get(ticket.creatorId)?.user.tag || ticket.creatorId}\n` +
+                        `Created at: ${new Date(ticket.createdAt).toLocaleString()}\n\n` +
+                        Array.from(messages.values())
+                            .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+                            .map(msg => `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}`)
+                            .join('\n\n');
+                    
+                    // Create transcript file
+                    const buffer = Buffer.from(transcript, 'utf8');
+                    const attachment = new AttachmentBuilder(buffer, {
+                        name: `transcript-${ticketId}.txt`
+                    });
+                    
+                    // Send transcript to the selected channel
+                    await channel.send({
+                        content: `Transcript for ticket #${ticketId} (requested by ${interaction.user.tag}):`,
+                        files: [attachment]
+                    });
+                    
+                    // Notify the user
+                    await interaction.editReply({
+                        content: `Ticket transcribed successfully! Transcript sent to <#${channel.id}>.`,
+                        components: []
+                    });
+                } catch (error) {
+                    console.error('Error handling transcript confirmation:', error);
+                    await interaction.editReply({
+                        content: `Failed to transcribe ticket: ${error.message}`,
+                        components: []
+                    });
+                }
+            }
+            else if (customId.startsWith('cancel_transcript_')) {
+                // Just remove the components and update the message
+                await interaction.update({
+                    content: 'Transcription cancelled.',
+                    components: []
+                });
+            }
+            else if (customId.startsWith('transcribe_')) {
                 // Check if user has admin permissions
                 if (!interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
                     await interaction.reply({
@@ -93,38 +248,73 @@ client.on(Events.InteractionCreate, async interaction => {
                     return;
                 }
 
-                await interaction.deferReply({ ephemeral: true });
-                
                 try {
-                    await client.tickets.transcribeTicket(ticketId, interaction.channel);
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[1];
                     
-                    // Generate and send transcript
-                    const transcript = await client.tickets.getTranscript(ticketId);
+                    // Get all text channels in the guild that the user can send messages to
+                    const availableChannels = interaction.guild.channels.cache
+                        .filter(channel => 
+                            channel.type === ChannelType.GuildText && 
+                            channel.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)
+                        )
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(channel => ({
+                            label: channel.name,
+                            value: channel.id,
+                            description: channel.parent ? `Category: ${channel.parent.name}` : 'No category'
+                        }));
+
+                    if (availableChannels.length === 0) {
+                        await interaction.reply({
+                            content: 'No available channels found where you can send the transcript.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+
+                    // Create a select menu for channels (max 25 options as per Discord's limit)
+                    const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
                     
-                    // Create and send transcript file
-                    const buffer = Buffer.from(transcript, 'utf8');
-                    const attachment = new AttachmentBuilder(buffer, {
-                        name: `transcript-${ticketId}.txt`
+                    const selectMenu = new StringSelectMenuBuilder()
+                        .setCustomId(`select_channel_${ticketId}`)
+                        .setPlaceholder('Select a channel to send the transcript to')
+                        .setMinValues(1)
+                        .setMaxValues(1);
+                        
+                    // Add options to the select menu (limited to 25 by Discord)
+                    availableChannels.slice(0, 25).forEach(channel => {
+                        selectMenu.addOptions(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(channel.label)
+                                .setValue(channel.value)
+                                .setDescription(channel.description.substring(0, 100)) // Max 100 chars for description
+                        );
                     });
                     
-                    await interaction.editReply({
-                        content: 'Ticket transcribed successfully!',
-                        files: [attachment],
+                    const row = new ActionRowBuilder().addComponents(selectMenu);
+                    
+                    // Send a message with the select menu
+                    await interaction.reply({
+                        content: 'Select a channel to send the transcript to:',
+                        components: [row],
                         ephemeral: true
                     });
                 } catch (error) {
-                    console.error('Error handling transcribe button:', error);
-                    await interaction.editReply({
-                        content: `Failed to transcribe ticket: ${error.message}`,
+                    console.error('Error creating channel select menu:', error);
+                    await interaction.reply({
+                        content: `Failed to create channel selection: ${error.message}`,
                         ephemeral: true
                     });
                 }
             }
         }
         else if (interaction.isModalSubmit()) {
-            const [action, type] = interaction.customId.split('_');
+            const customId = interaction.customId;
             
-            if (action === 'create') {
+            if (customId.startsWith('create_')) {
+                const [action, type] = customId.split('_');
+                
                 await interaction.deferReply({ ephemeral: true });
                 const name = interaction.fields.getTextInputValue('name_input');
                 
@@ -145,6 +335,54 @@ client.on(Events.InteractionCreate, async interaction => {
                     await interaction.editReply({
                         content: `Failed to create ${type}: ${error.message}`,
                         ephemeral: true
+                    });
+                }
+            }
+        }
+        else if (interaction.isStringSelectMenu()) {
+            // Handle select menu interactions
+            const customId = interaction.customId;
+            
+            if (customId.startsWith('select_channel_')) {
+                try {
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[2];
+                    
+                    // Get the selected channel ID
+                    const channelId = interaction.values[0];
+                    const channel = await interaction.guild.channels.fetch(channelId);
+                    
+                    if (!channel) {
+                        await interaction.update({
+                            content: 'Selected channel no longer exists. Please try again.',
+                            components: []
+                        });
+                        return;
+                    }
+                    
+                    // Create a confirmation button
+                    const confirmButton = new ButtonBuilder()
+                        .setCustomId(`confirm_transcript_${ticketId}_${channelId}`)
+                        .setLabel('Confirm Transcription')
+                        .setStyle(ButtonStyle.Success);
+                        
+                    const cancelButton = new ButtonBuilder()
+                        .setCustomId(`cancel_transcript_${ticketId}`)
+                        .setLabel('Cancel')
+                        .setStyle(ButtonStyle.Secondary);
+                        
+                    const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+                    
+                    // Update the message with confirmation buttons
+                    await interaction.update({
+                        content: `Send transcript to #${channel.name}?`,
+                        components: [row]
+                    });
+                } catch (error) {
+                    console.error('Error handling channel selection:', error);
+                    await interaction.update({
+                        content: `Failed to process channel selection: ${error.message}`,
+                        components: []
                     });
                 }
             }
