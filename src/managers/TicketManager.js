@@ -88,33 +88,64 @@ class TicketManager {
     async createTicket(options) {
         if (!this.initialized) await this.init();
         
-        const { guild, creator, type, name } = options;
+        const { guild, creator, type, name, description } = options;
         
         try {
-            console.log('Creating ticket with options:', { guild: guild.id, creator: creator.id, type, name });
+            console.log('Creating control channel with options:', { guild: guild.id, creator: creator.id, type, name });
             const ticketId = Date.now().toString(36);
-            const channelName = `${type}-${name}`;
+            
+            // Use consistent naming format for control rooms vs tickets
+            const channelName = name === 'control' 
+                ? `🎫-${type}-${name}` // Control room format
+                : `${type}-ticket-${name}`; // Ticket format
 
-            let category = guild.channels.cache.find(c => c.name === 'Tickets' && c.type === ChannelType.GuildCategory);
+            // Get category name based on ticket type
+            let categoryName;
+            switch (type) {
+                case 'match':
+                    categoryName = 'Match Management';
+                    break;
+                case 'room':
+                    categoryName = 'Room Management';
+                    break;
+                case 'support':
+                    categoryName = 'Support Tickets';
+                    break;
+                case 'custom':
+                    categoryName = 'Custom Management';
+                    break;
+                default:
+                    categoryName = `${type.charAt(0).toUpperCase() + type.slice(1)} Management`;
+            }
+
+            // Find or create the category
+            let category = guild.channels.cache.find(c => c.name === categoryName && c.type === ChannelType.GuildCategory);
             if (!category) {
                 category = await guild.channels.create({
-                    name: 'Tickets',
+                    name: categoryName,
                     type: ChannelType.GuildCategory
                 });
             }
 
+            // Create the control channel
             const channel = await guild.channels.create({
                 name: channelName,
                 type: ChannelType.GuildText,
                 parent: category,
+                topic: description || `Create a ${type} ticket here`,
                 permissionOverwrites: [
                     {
                         id: guild.id,
-                        deny: [PermissionFlagsBits.ViewChannel]
+                        allow: [PermissionFlagsBits.ViewChannel],
+                        deny: [PermissionFlagsBits.SendMessages]
                     },
                     {
-                        id: creator.id,
-                        allow: [PermissionFlagsBits.ViewChannel]
+                        id: this.client.user.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ManageMessages
+                        ]
                     }
                 ]
             });
@@ -133,31 +164,37 @@ class TicketManager {
             console.log('Saving ticket data:', ticketData);
             await this.db.saveTicket(ticketData);
             await this.db.addParticipant(ticketId, creator.id, 'creator');
-            await this.db.logAction(ticketId, 'create', creator.id, { type, name });
+            await this.db.logAction(ticketId, 'create', creator.id, { type, name, description });
 
             this.activeTickets.set(ticketId, ticketData);
 
-            // Add transcript button for admins
-            const transcribeButton = new ActionRowBuilder()
+            // Create the ticket button for all control channels (including custom types)
+            const button = new ActionRowBuilder()
                 .addComponents(
                     new ButtonBuilder()
-                        .setCustomId(`transcribe_${ticketId}`)
-                        .setLabel('Transcribe Ticket')
-                        .setStyle(ButtonStyle.Secondary)
-                        .setEmoji('📝')
+                        .setCustomId(`create_${type}_ticket`)
+                        .setLabel(`Open ${type.charAt(0).toUpperCase() + type.slice(1)} Ticket`)
+                        .setStyle(ButtonStyle.Primary)
+                        .setEmoji('🎫')
                 );
-
-            // Send button with admin-only visibility
+            
+            // Create the embed
+            const embed = new EmbedBuilder()
+                .setTitle(`${type.charAt(0).toUpperCase() + type.slice(1)} Control Room`)
+                .setDescription(description || `Need a ${type}? Click the button below to open a ${type} ticket. Our team will assist you as soon as possible.`)
+                .setColor('#5865F2')
+                .setFooter({ text: `${type.charAt(0).toUpperCase() + type.slice(1)} Ticket System` })
+                .setTimestamp();
+            
+            // Send the message with the button
             await channel.send({
-                content: 'Admin Controls:',
-                components: [transcribeButton],
-                // Only show to users with MANAGE_CHANNELS permission
-                flags: MessageFlags.Ephemeral
+                embeds: [embed],
+                components: [button]
             });
 
             return ticketData;
         } catch (error) {
-            console.error('Error creating ticket:', error);
+            console.error('Error creating control channel:', error);
             throw error;
         }
     }
@@ -314,34 +351,44 @@ class TicketManager {
             .addComponents(
                 new ButtonBuilder()
                     .setCustomId('create_match')
-                    .setLabel('Create Match')
+                    .setLabel('Create Match Management Room')
                     .setStyle(ButtonStyle.Primary)
                     .setEmoji('🎮'),
                 new ButtonBuilder()
                     .setCustomId('create_room')
-                    .setLabel('Create Room')
+                    .setLabel('Create Room Management Channel')
                     .setStyle(ButtonStyle.Success)
                     .setEmoji('🚪'),
                 new ButtonBuilder()
                     .setCustomId('create_support')
-                    .setLabel('Support Ticket')
+                    .setLabel('Create Support Ticket Control Room')
                     .setStyle(ButtonStyle.Secondary)
                     .setEmoji('❓')
             );
+        
+        const customButton = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('create_custom')
+                    .setLabel('Create Custom Management Channel')
+                    .setStyle(ButtonStyle.Danger)
+                    .setEmoji('⚙️')
+            );
 
         const embed = new EmbedBuilder()
-            .setTitle('Ticket Control Room')
-            .setDescription('Click a button below to create a new ticket:')
+            .setTitle('Control Room')
+            .setDescription('Click a button below to create a new management channel:')
             .setColor('#5865F2')
             .addFields(
-                { name: '🎮 Match', value: 'Create a match coordination channel' },
-                { name: '🚪 Room', value: 'Create a room management channel' },
-                { name: '❓ Support', value: 'Create a support ticket' }
+                { name: '🎮 Match Management', value: 'Create a match coordination control room' },
+                { name: '🚪 Room Management', value: 'Create a room management control room' },
+                { name: '❓ Support Ticket', value: 'Create a support ticket control room' },
+                { name: '⚙️ Custom Management', value: 'Create a custom management control room with your own name' }
             );
 
         await channel.send({
             embeds: [embed],
-            components: [buttons]
+            components: [buttons, customButton]
         });
     }
 

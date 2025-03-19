@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "better-sqlite3": "^11.8.1",
     "discord.js": "^14.18.0",
     "sqlite3": "^5.1.7"
   }

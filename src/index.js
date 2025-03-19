@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Collection, Events, ButtonStyle, ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits, AttachmentBuilder, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, Events, ButtonStyle, ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits, AttachmentBuilder, ChannelType, MessageFlags } = require('discord.js');
 const { token } = require('./config.json');
 const TicketManager = require('./managers/TicketManager');
 const CommandHandler = require('./handlers/CommandHandler');
@@ -102,14 +102,7 @@ client.once('ready', async () => {
         await client.tickets.init(); // Initialize ticket manager
         console.log(`Logged in as ${client.user.tag}`);
         
-        // Create support channels in all guilds
-        for (const [guildId, guild] of client.guilds.cache) {
-            try {
-                await createSupportChannel(guild);
-            } catch (error) {
-                console.error(`Error creating support channel in ${guild.name}:`, error);
-            }
-        }
+        // No longer creating support channels in all guilds
     } catch (error) {
         console.error('Failed to initialize:', error);
     }
@@ -119,14 +112,22 @@ client.once('ready', async () => {
 client.on(Events.GuildCreate, async (guild) => {
     try {
         console.log(`Joined new guild: ${guild.name}`);
-        await createSupportChannel(guild);
+        // No longer creating support channel on guild join
+        // Control room will be created by the ticket manager
+        await client.tickets.setupGuildControlRoom(guild);
     } catch (error) {
-        console.error(`Error creating support channel in new guild ${guild.name}:`, error);
+        console.error(`Error setting up control room in new guild ${guild.name}:`, error);
     }
 });
 
 client.on(Events.InteractionCreate, async interaction => {
     try {
+        // Check if the interaction is valid
+        if (!interaction) {
+            console.error('Received invalid interaction');
+            return;
+        }
+
         if (interaction.isChatInputCommand()) {
             console.log(`Received command interaction: ${interaction.commandName}`);
 
@@ -146,26 +147,164 @@ client.on(Events.InteractionCreate, async interaction => {
             const customId = interaction.customId;
             
             if (customId.startsWith('create_')) {
-                const type = customId.split('_')[1]; // match, room, or support
+                const parts = customId.split('_');
+                const action = parts[0]; // create
+                const type = parts[1]; // match, room, support, custom
+                const isTicket = parts.length > 2 && parts[2] === 'ticket';
                 
-                // Create and show modal for channel name input
-                const modal = new ModalBuilder()
-                    .setCustomId(`create_${type}_modal`)
-                    .setTitle(`Create ${type.charAt(0).toUpperCase() + type.slice(1)}`);
+                if (isTicket) {
+                    // This is a ticket creation from a control room
+                    // Create the ticket directly without showing a modal
+                    await interaction.deferReply({ ephemeral: true });
+                    
+                    try {
+                        // Get the next sequential ticket number for this type
+                        const ticketNumber = await client.tickets.db.getNextTicketNumber(type, interaction.guild.id);
+                        // Format the ticket number with leading zeros (0001, 0002, etc.)
+                        const name = ticketNumber.toString().padStart(4, '0');
+                        
+                        // Use the same category as the control room
+                        const ticketCategory = interaction.channel.parent;
+                        
+                        // Create ticket channel
+                        const ticketChannel = await interaction.guild.channels.create({
+                            name: `${type}-ticket-${name}`,
+                            type: ChannelType.GuildText,
+                            parent: ticketCategory,
+                            permissionOverwrites: [
+                                {
+                                    id: interaction.guild.id,
+                                    deny: [PermissionFlagsBits.ViewChannel]
+                                },
+                                {
+                                    id: interaction.user.id,
+                                    allow: [PermissionFlagsBits.ViewChannel]
+                                }
+                            ]
+                        });
+                        
+                        // Create ticket in database
+                        const ticketId = Date.now().toString(36);
+                        const ticketData = {
+                            id: ticketId,
+                            guildId: interaction.guild.id,
+                            channelId: ticketChannel.id,
+                            creatorId: interaction.user.id,
+                            type,
+                            name,
+                            createdAt: Date.now(),
+                            status: 'open'
+                        };
+                        
+                        await client.tickets.db.saveTicket(ticketData);
+                        await client.tickets.db.addParticipant(ticketId, interaction.user.id, 'creator');
+                        await client.tickets.db.logAction(ticketId, 'create', interaction.user.id, { type, name });
+                        
+                        client.tickets.activeTickets.set(ticketId, ticketData);
+                        
+                        // Add admin controls with transcript, add user, and close ticket buttons
+                        const adminButtons = new ActionRowBuilder()
+                            .addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`add_user_${ticketId}`)
+                                    .setLabel('Add User')
+                                    .setStyle(ButtonStyle.Success)
+                                    .setEmoji('👤'),
+                                new ButtonBuilder()
+                                    .setCustomId(`close_ticket_${ticketId}`)
+                                    .setLabel('Close Ticket')
+                                    .setStyle(ButtonStyle.Danger)
+                                    .setEmoji('🔒')
+                            );
 
-                const nameInput = new TextInputBuilder()
-                    .setCustomId('name_input')
-                    .setLabel(`Enter ${type} name`)
-                    .setStyle(TextInputStyle.Short)
-                    .setPlaceholder(`Enter a name for your ${type} channel`)
-                    .setRequired(true)
-                    .setMinLength(3)
-                    .setMaxLength(32);
+                        // Send buttons with admin-only visibility
+                        await ticketChannel.send({
+                            content: 'Ticket Controls:',
+                            components: [adminButtons]
+                        });
+                        
+                        await interaction.editReply({
+                            content: `${type.charAt(0).toUpperCase() + type.slice(1)} ticket created: <#${ticketChannel.id}>`,
+                            ephemeral: true
+                        });
+                    } catch (error) {
+                        console.error('Error creating ticket:', error);
+                        await interaction.editReply({
+                            content: `Failed to create ${type} ticket: ${error.message}`,
+                            ephemeral: true
+                        });
+                    }
+                } else if (type === 'custom') {
+                    // Show a modal to get the custom type directly
+                    try {
+                        const modal = new ModalBuilder()
+                            .setCustomId('create_custom_modal')
+                            .setTitle('Create Custom Management Channel');
 
-                const firstActionRow = new ActionRowBuilder().addComponents(nameInput);
-                modal.addComponents(firstActionRow);
+                        const typeInput = new TextInputBuilder()
+                            .setCustomId('type_input')
+                            .setLabel('Enter management channel type')
+                            .setStyle(TextInputStyle.Short)
+                            .setPlaceholder('ticket, support, match, contest, etc.')
+                            .setRequired(true)
+                            .setMinLength(3)
+                            .setMaxLength(32);
 
-                await interaction.showModal(modal);
+                        const firstActionRow = new ActionRowBuilder().addComponents(typeInput);
+                        modal.addComponents(firstActionRow);
+
+                        await interaction.showModal(modal);
+                    } catch (error) {
+                        console.error('Error showing custom type modal:', error);
+                        await interaction.reply({
+                            content: 'Failed to show the custom type modal. Please try again later.',
+                            ephemeral: true
+                        });
+                    }
+                } else {
+                    // For standard management channels (match, room, support), create them directly without a modal
+                    await interaction.deferReply({ ephemeral: true });
+                    
+                    try {
+                        // Check if a control room of this type already exists
+                        const existingChannels = interaction.guild.channels.cache.filter(channel => 
+                            channel.name.includes(`🎫-${type}-control`) && 
+                            channel.type === ChannelType.GuildText
+                        );
+                        
+                        if (existingChannels.size > 0) {
+                            const existingChannel = existingChannels.first();
+                            await interaction.editReply({
+                                content: `A ${type} control room already exists: <#${existingChannel.id}>. Only one control room of each type is allowed at a time.`,
+                                ephemeral: true
+                            });
+                            return;
+                        }
+                        
+                        // Use a default name for standard management channels
+                        const defaultName = 'control';
+                        
+                        // Create a control room
+                        const ticket = await client.tickets.createTicket({
+                            guild: interaction.guild,
+                            creator: interaction.user,
+                            type,
+                            name: defaultName,
+                            description: `${type.charAt(0).toUpperCase() + type.slice(1)} management channel`
+                        });
+
+                        await interaction.editReply({
+                            content: `${type.charAt(0).toUpperCase() + type.slice(1)} control room created: <#${ticket.channelId}>`,
+                            ephemeral: true
+                        });
+                    } catch (error) {
+                        console.error('Error creating management channel:', error);
+                        await interaction.editReply({
+                            content: `Failed to create the ${type} management channel. Please try again later.`,
+                            ephemeral: true
+                        });
+                    }
+                }
             } 
             else if (customId.startsWith('confirm_transcript_')) {
                 await interaction.deferUpdate();
@@ -196,8 +335,11 @@ client.on(Events.InteractionCreate, async interaction => {
                         return;
                     }
                     
+                    // Get the ticket channel (which should be the current channel for a closed ticket)
+                    const ticketChannel = interaction.channel;
+                    
                     // Generate transcript without saving messages (which causes the UNIQUE constraint error)
-                    const messages = await interaction.channel.messages.fetch({ limit: 100 });
+                    const messages = await ticketChannel.messages.fetch({ limit: 100 });
                     const transcript = `Transcript for ${ticket.type}-${ticket.name}\n` +
                         `Created by: ${interaction.guild.members.cache.get(ticket.creatorId)?.user.tag || ticket.creatorId}\n` +
                         `Created at: ${new Date(ticket.createdAt).toLocaleString()}\n\n` +
@@ -308,32 +450,625 @@ client.on(Events.InteractionCreate, async interaction => {
                     });
                 }
             }
+            else if (customId.startsWith('add_user_')) {
+                try {
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[2];
+                    
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.reply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Check if user has permission (creator or admin)
+                    const isCreator = interaction.user.id === ticket.creatorId;
+                    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    
+                    if (!isCreator && !isAdmin) {
+                        await interaction.reply({
+                            content: 'You do not have permission to add users to this ticket.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Show a modal to get the user ID
+                    const modal = new ModalBuilder()
+                        .setCustomId(`add_user_modal_${ticketId}`)
+                        .setTitle('Add User to Ticket');
+                    
+                    const userIdInput = new TextInputBuilder()
+                        .setCustomId('user_id_input')
+                        .setLabel('Enter Username')
+                        .setStyle(TextInputStyle.Short)
+                        .setPlaceholder('Username (e.g., username or username#1234)')
+                        .setRequired(true);
+                    
+                    const firstActionRow = new ActionRowBuilder().addComponents(userIdInput);
+                    modal.addComponents(firstActionRow);
+                    
+                    await interaction.showModal(modal);
+                } catch (error) {
+                    console.error('Error showing add user modal:', error);
+                    await interaction.reply({
+                        content: 'Failed to show the add user modal. Please try again later.',
+                        ephemeral: true
+                    });
+                }
+            }
+            else if (customId.startsWith('close_ticket_')) {
+                try {
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[2];
+                    
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.reply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Check if user has permission (creator or admin)
+                    const isCreator = interaction.user.id === ticket.creatorId;
+                    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    
+                    if (!isCreator && !isAdmin) {
+                        await interaction.reply({
+                            content: 'You do not have permission to close this ticket.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Show confirmation buttons for closing or deleting the ticket
+                    const confirmButtons = new ActionRowBuilder()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`confirm_close_${ticketId}`)
+                                .setLabel('Move to Closed')
+                                .setStyle(ButtonStyle.Secondary)
+                                .setEmoji('📁'),
+                            new ButtonBuilder()
+                                .setCustomId(`close_and_transcribe_${ticketId}`)
+                                .setLabel('Close & Transcribe')
+                                .setStyle(ButtonStyle.Primary)
+                                .setEmoji('📝'),
+                            new ButtonBuilder()
+                                .setCustomId(`confirm_delete_${ticketId}`)
+                                .setLabel('Delete Ticket')
+                                .setStyle(ButtonStyle.Danger)
+                                .setEmoji('🗑️'),
+                            new ButtonBuilder()
+                                .setCustomId(`cancel_close_${ticketId}`)
+                                .setLabel('Cancel')
+                                .setStyle(ButtonStyle.Success)
+                                .setEmoji('❌')
+                        );
+                    
+                    await interaction.reply({
+                        content: 'What would you like to do with this ticket?',
+                        components: [confirmButtons],
+                        ephemeral: true
+                    });
+                } catch (error) {
+                    console.error('Error showing close ticket options:', error);
+                    await interaction.reply({
+                        content: 'Failed to process your request. Please try again later.',
+                        ephemeral: true
+                    });
+                }
+            }
+            else if (customId.startsWith('confirm_close_')) {
+                await interaction.deferReply({ ephemeral: true });
+                
+                try {
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[2];
+                    
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.editReply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Get the channel
+                    const channel = await interaction.guild.channels.fetch(ticket.channelId);
+                    if (!channel) {
+                        await interaction.editReply({
+                            content: 'Ticket channel no longer exists.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Find or create the "Closed Tickets" category
+                    let closedCategory = interaction.guild.channels.cache.find(
+                        c => c.name === 'Closed Tickets' && c.type === ChannelType.GuildCategory
+                    );
+                    
+                    if (!closedCategory) {
+                        closedCategory = await interaction.guild.channels.create({
+                            name: 'Closed Tickets',
+                            type: ChannelType.GuildCategory,
+                            permissionOverwrites: [
+                                {
+                                    id: interaction.guild.id,
+                                    deny: [PermissionFlagsBits.SendMessages],
+                                    allow: [PermissionFlagsBits.ViewChannel]
+                                }
+                            ]
+                        });
+                    }
+                    
+                    // Move the channel to the closed category
+                    await channel.setParent(closedCategory.id);
+                    
+                    // Lock the channel (prevent everyone from sending messages)
+                    await channel.permissionOverwrites.edit(interaction.guild.id, {
+                        SendMessages: false
+                    });
+                    
+                    // Update ticket status in database
+                    await client.tickets.db.updateTicket(ticketId, {
+                        status: 'closed',
+                        closed_at: Date.now(),
+                        closed_by: interaction.user.id
+                    });
+                    
+                    // Log the action
+                    await client.tickets.db.logAction(ticketId, 'close', interaction.user.id, { action: 'moved_to_closed' });
+                    
+                    // Find and remove the control buttons message
+                    const messages = await channel.messages.fetch({ limit: 10 });
+                    const controlMessage = messages.find(msg => 
+                        msg.author.id === client.user.id && 
+                        msg.content === 'Ticket Controls:' &&
+                        msg.components.length > 0
+                    );
+                    
+                    if (controlMessage) {
+                        await controlMessage.delete().catch(err => console.error('Error deleting control message:', err));
+                    }
+                    
+                    // Send a message in the channel without the transcribe button
+                    await channel.send({
+                        content: `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the Closed Tickets category.`
+                    });
+                    
+                    await interaction.editReply({
+                        content: `Ticket closed successfully. The ticket has been moved to the Closed Tickets category.`,
+                        ephemeral: true
+                    });
+                } catch (error) {
+                    console.error('Error closing ticket:', error);
+                    await interaction.editReply({
+                        content: `Failed to close the ticket: ${error.message}`,
+                        ephemeral: true
+                    });
+                }
+            }
+            else if (customId.startsWith('confirm_delete_')) {
+                await interaction.deferReply({ ephemeral: true });
+                
+                try {
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[2];
+                    
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.editReply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Get the channel
+                    const channel = await interaction.guild.channels.fetch(ticket.channelId);
+                    
+                    // Generate a transcript before deleting
+                    if (channel) {
+                        try {
+                            // Get all messages in the channel for the transcript
+                            const allMessages = await channel.messages.fetch({ limit: 100 });
+                            const transcript = `Transcript for ${ticket.type}-${ticket.name}\n` +
+                                `Created by: ${interaction.guild.members.cache.get(ticket.creatorId)?.user.tag || ticket.creatorId}\n` +
+                                `Created at: ${new Date(ticket.createdAt).toLocaleString()}\n` +
+                                `Closed by: ${interaction.user.tag}\n` +
+                                `Closed at: ${new Date().toLocaleString()}\n\n` +
+                                Array.from(allMessages.values())
+                                    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+                                    .map(msg => `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}`)
+                                    .join('\n\n');
+                            
+                            // Create transcript file
+                            const buffer = Buffer.from(transcript, 'utf8');
+                            const attachment = new AttachmentBuilder(buffer, {
+                                name: `transcript-${ticketId}.txt`
+                            });
+                            
+                            // Find a logs channel to send the transcript to
+                            let logsChannel = interaction.guild.channels.cache.find(
+                                c => c.name === 'ticket-logs' && c.type === ChannelType.GuildText
+                            );
+                            
+                            if (!logsChannel) {
+                                // Try to find any channel with "log" in the name
+                                logsChannel = interaction.guild.channels.cache.find(
+                                    c => c.name.includes('log') && c.type === ChannelType.GuildText
+                                );
+                            }
+                            
+                            if (logsChannel) {
+                                await logsChannel.send({
+                                    content: `Transcript for deleted ticket #${ticketId} (${ticket.type}-${ticket.name}) - Deleted by ${interaction.user.tag}:`,
+                                    files: [attachment]
+                                });
+                            }
+                            
+                            // Delete the channel
+                            await channel.delete(`Ticket deleted by ${interaction.user.tag}`);
+                        } catch (transcriptError) {
+                            console.error('Error generating transcript before deletion:', transcriptError);
+                            // Still proceed with deletion even if transcript fails
+                            if (channel) {
+                                await channel.delete(`Ticket deleted by ${interaction.user.tag}`);
+                            }
+                        }
+                    }
+                    
+                    // Update ticket status in database
+                    await client.tickets.db.updateTicket(ticketId, {
+                        status: 'deleted',
+                        closed_at: Date.now(),
+                        closed_by: interaction.user.id
+                    });
+                    
+                    // Log the action
+                    await client.tickets.db.logAction(ticketId, 'delete', interaction.user.id, { action: 'deleted' });
+                    
+                    // Remove from active tickets map
+                    client.tickets.activeTickets.delete(ticketId);
+                    
+                    await interaction.editReply({
+                        content: `Ticket deleted successfully.`,
+                        ephemeral: true
+                    });
+                } catch (error) {
+                    console.error('Error deleting ticket:', error);
+                    await interaction.editReply({
+                        content: `Failed to delete the ticket: ${error.message}`,
+                        ephemeral: true
+                    });
+                }
+            }
+            else if (customId.startsWith('cancel_close_')) {
+                // Just remove the components and update the message
+                await interaction.update({
+                    content: 'Ticket closing cancelled.',
+                    components: []
+                });
+            }
+            else if (customId.startsWith('close_and_transcribe_')) {
+                await interaction.deferReply({ ephemeral: true });
+                
+                try {
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[3];
+                    
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.editReply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Get the channel
+                    const channel = await interaction.guild.channels.fetch(ticket.channelId);
+                    if (!channel) {
+                        await interaction.editReply({
+                            content: 'Ticket channel no longer exists.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Find or create the "Closed Tickets" category
+                    let closedCategory = interaction.guild.channels.cache.find(
+                        c => c.name === 'Closed Tickets' && c.type === ChannelType.GuildCategory
+                    );
+                    
+                    if (!closedCategory) {
+                        closedCategory = await interaction.guild.channels.create({
+                            name: 'Closed Tickets',
+                            type: ChannelType.GuildCategory,
+                            permissionOverwrites: [
+                                {
+                                    id: interaction.guild.id,
+                                    deny: [PermissionFlagsBits.SendMessages],
+                                    allow: [PermissionFlagsBits.ViewChannel]
+                                }
+                            ]
+                        });
+                    }
+                    
+                    // Move the channel to the closed category
+                    await channel.setParent(closedCategory.id);
+                    
+                    // Lock the channel (prevent everyone from sending messages)
+                    await channel.permissionOverwrites.edit(interaction.guild.id, {
+                        SendMessages: false
+                    });
+                    
+                    // Update ticket status in database
+                    await client.tickets.db.updateTicket(ticketId, {
+                        status: 'closed',
+                        closed_at: Date.now(),
+                        closed_by: interaction.user.id
+                    });
+                    
+                    // Log the action
+                    await client.tickets.db.logAction(ticketId, 'close', interaction.user.id, { action: 'moved_to_closed' });
+                    
+                    // Find and remove the control buttons message
+                    const messages = await channel.messages.fetch({ limit: 10 });
+                    const controlMessage = messages.find(msg => 
+                        msg.author.id === client.user.id && 
+                        msg.content === 'Ticket Controls:' &&
+                        msg.components.length > 0
+                    );
+                    
+                    if (controlMessage) {
+                        await controlMessage.delete().catch(err => console.error('Error deleting control message:', err));
+                    }
+                    
+                    // Send a message in the channel
+                    await channel.send({
+                        content: `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the Closed Tickets category.`
+                    });
+                    
+                    await interaction.editReply({
+                        content: `Ticket closed successfully. The ticket has been moved to the Closed Tickets category. Preparing transcript options...`,
+                        ephemeral: true
+                    });
+                    
+                    // Get all text channels in the guild that the user can send messages to
+                    const availableChannels = interaction.guild.channels.cache
+                        .filter(ch => 
+                            ch.type === ChannelType.GuildText && 
+                            ch.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)
+                        )
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(ch => ({
+                            label: ch.name,
+                            value: ch.id,
+                            description: ch.parent ? `Category: ${ch.parent.name}` : 'No category'
+                        }));
+
+                    if (availableChannels.length === 0) {
+                        await interaction.followUp({
+                            content: 'No available channels found where you can send the transcript.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+
+                    // Create a select menu for channels (max 25 options as per Discord's limit)
+                    const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+                    
+                    const selectMenu = new StringSelectMenuBuilder()
+                        .setCustomId(`select_channel_${ticketId}`)
+                        .setPlaceholder('Select a channel to send the transcript to')
+                        .setMinValues(1)
+                        .setMaxValues(1);
+                        
+                    // Add options to the select menu (limited to 25 by Discord)
+                    availableChannels.slice(0, 25).forEach(ch => {
+                        selectMenu.addOptions(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(ch.label)
+                                .setValue(ch.value)
+                                .setDescription(ch.description.substring(0, 100)) // Max 100 chars for description
+                        );
+                    });
+                    
+                    const row = new ActionRowBuilder().addComponents(selectMenu);
+                    
+                    // Send a message with the select menu
+                    await interaction.followUp({
+                        content: 'Select a channel to send the transcript to:',
+                        components: [row],
+                        ephemeral: true
+                    });
+                } catch (error) {
+                    console.error('Error closing and transcribing ticket:', error);
+                    await interaction.editReply({
+                        content: `Failed to close the ticket: ${error.message}`,
+                        ephemeral: true
+                    });
+                }
+            }
         }
         else if (interaction.isModalSubmit()) {
             const customId = interaction.customId;
             
-            if (customId.startsWith('create_')) {
-                const [action, type] = customId.split('_');
+            if (customId === 'create_custom_modal') {
+                // Handle custom type input from the main control room
+                const customType = interaction.fields.getTextInputValue('type_input').toLowerCase();
                 
+                // Create a management channel for the custom type
                 await interaction.deferReply({ ephemeral: true });
-                const name = interaction.fields.getTextInputValue('name_input');
                 
                 try {
+                    // Check if a control room of this type already exists
+                    const existingChannels = interaction.guild.channels.cache.filter(channel => 
+                        channel.name.includes(`🎫-${customType}-control`) && 
+                        channel.type === ChannelType.GuildText
+                    );
+                    
+                    if (existingChannels.size > 0) {
+                        const existingChannel = existingChannels.first();
+                        await interaction.editReply({
+                            content: `A ${customType} control room already exists: <#${existingChannel.id}>. Only one control room of each type is allowed at a time.`,
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Generate a default name for the channel
+                    const defaultName = 'control';
+                    
+                    // Create a control room with the custom type
                     const ticket = await client.tickets.createTicket({
                         guild: interaction.guild,
                         creator: interaction.user,
-                        type,
-                        name
+                        type: customType,
+                        name: defaultName,
+                        description: `${customType.charAt(0).toUpperCase() + customType.slice(1)} management channel`
                     });
 
                     await interaction.editReply({
-                        content: `${type.charAt(0).toUpperCase() + type.slice(1)} channel created: <#${ticket.channelId}>`,
+                        content: `${customType.charAt(0).toUpperCase() + customType.slice(1)} control room created: <#${ticket.channelId}>`,
                         ephemeral: true
                     });
                 } catch (error) {
-                    console.error('Error handling modal submission:', error);
+                    console.error('Error creating custom type channel:', error);
                     await interaction.editReply({
-                        content: `Failed to create ${type}: ${error.message}`,
+                        content: `Failed to create the ${customType} management channel. Please try again later.`,
+                        ephemeral: true
+                    });
+                }
+            }
+            else if (customId.startsWith('add_user_modal_')) {
+                // Handle adding a user to a ticket
+                const ticketId = customId.split('_')[3];
+                
+                await interaction.deferReply({ ephemeral: true });
+                
+                try {
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.editReply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Get the user input
+                    let userInput = interaction.fields.getTextInputValue('user_id_input').trim();
+                    
+                    // Try to find the user
+                    let user = null;
+                    
+                    // Check if it's a mention
+                    if (userInput.startsWith('<@') && userInput.endsWith('>')) {
+                        // Handle mentions (format: <@123456789012345678>)
+                        let userId = userInput.slice(2, -1);
+                        
+                        // Handle nickname mentions
+                        if (userId.startsWith('!')) {
+                            userId = userId.slice(1);
+                        }
+                        
+                        try {
+                            user = await interaction.client.users.fetch(userId);
+                        } catch (error) {
+                            console.error('Error fetching user by ID:', error);
+                        }
+                    } 
+                    // Check if it's a direct user ID
+                    else if (/^\d{17,19}$/.test(userInput)) {
+                        try {
+                            user = await interaction.client.users.fetch(userInput);
+                        } catch (error) {
+                            console.error('Error fetching user by ID:', error);
+                        }
+                    } 
+                    // Otherwise, try to find by username
+                    else {
+                        // Get all members in the guild
+                        const members = await interaction.guild.members.fetch();
+                        
+                        // First try exact match on username
+                        let member = members.find(m => 
+                            m.user.username.toLowerCase() === userInput.toLowerCase() || 
+                            m.user.tag.toLowerCase() === userInput.toLowerCase() ||
+                            (m.nickname && m.nickname.toLowerCase() === userInput.toLowerCase())
+                        );
+                        
+                        // If no exact match, try partial match
+                        if (!member) {
+                            member = members.find(m => 
+                                m.user.username.toLowerCase().includes(userInput.toLowerCase()) || 
+                                (m.nickname && m.nickname.toLowerCase().includes(userInput.toLowerCase()))
+                            );
+                        }
+                        
+                        if (member) {
+                            user = member.user;
+                        }
+                    }
+                    
+                    if (!user) {
+                        await interaction.editReply({
+                            content: 'Could not find a user with that username. Please try again with a different username or use their ID.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Get the channel
+                    const channel = await interaction.guild.channels.fetch(ticket.channelId);
+                    if (!channel) {
+                        await interaction.editReply({
+                            content: 'Ticket channel no longer exists.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Add the user to the channel
+                    await channel.permissionOverwrites.create(user.id, {
+                        ViewChannel: true,
+                        SendMessages: true,
+                        ReadMessageHistory: true
+                    });
+                    
+                    // Add the user to the ticket participants
+                    await client.tickets.db.addParticipant(ticketId, user.id, 'added');
+                    await client.tickets.db.logAction(ticketId, 'add_user', interaction.user.id, { added_user: user.id });
+                    
+                    await interaction.editReply({
+                        content: `User ${user.tag} has been added to the ticket.`,
+                        ephemeral: true
+                    });
+                    
+                    // Notify in the channel
+                    await channel.send({
+                        content: `${interaction.user} added ${user} to this ticket.`
+                    });
+                } catch (error) {
+                    console.error('Error adding user to ticket:', error);
+                    await interaction.editReply({
+                        content: `Failed to add user to the ticket: ${error.message}`,
                         ephemeral: true
                     });
                 }
@@ -387,8 +1122,30 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
             }
         }
+        else {
+            console.log(`Unhandled interaction type: ${interaction.type}`);
+        }
     } catch (error) {
         console.error('Error handling interaction:', error);
+        
+        // Try to respond to the interaction if possible
+        try {
+            const canReply = interaction.reply && typeof interaction.reply === 'function';
+            const canEditReply = interaction.editReply && typeof interaction.editReply === 'function';
+            
+            if (canReply && !interaction.replied && !interaction.deferred) {
+                await interaction.reply({
+                    content: 'An error occurred while processing your request. Please try again later.',
+                    ephemeral: true
+                });
+            } else if (canEditReply && interaction.deferred && !interaction.replied) {
+                await interaction.editReply({
+                    content: 'An error occurred while processing your request. Please try again later.'
+                });
+            }
+        } catch (replyError) {
+            console.error('Error sending error response:', replyError);
+        }
     }
 });
 

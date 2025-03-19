@@ -56,6 +56,41 @@ class Database {
                         )
                     `);
 
+                    // Add participants table
+                    this.db.run(`
+                        CREATE TABLE IF NOT EXISTS ticket_participants (
+                            ticket_id TEXT NOT NULL,
+                            user_id TEXT NOT NULL,
+                            role TEXT NOT NULL,
+                            joined_at INTEGER NOT NULL,
+                            PRIMARY KEY (ticket_id, user_id),
+                            FOREIGN KEY(ticket_id) REFERENCES tickets(id)
+                        )
+                    `);
+
+                    // Add actions log table
+                    this.db.run(`
+                        CREATE TABLE IF NOT EXISTS ticket_actions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            ticket_id TEXT NOT NULL,
+                            action TEXT NOT NULL,
+                            user_id TEXT NOT NULL,
+                            details TEXT,
+                            timestamp INTEGER NOT NULL,
+                            FOREIGN KEY(ticket_id) REFERENCES tickets(id)
+                        )
+                    `);
+                    
+                    // Add ticket counters table to track sequential ticket numbers by type
+                    this.db.run(`
+                        CREATE TABLE IF NOT EXISTS ticket_counters (
+                            type TEXT PRIMARY KEY,
+                            guild_id TEXT NOT NULL,
+                            last_number INTEGER NOT NULL,
+                            UNIQUE(type, guild_id)
+                        )
+                    `);
+
                     console.log('Database tables created successfully');
                     resolve();
                 } catch (error) {
@@ -265,16 +300,19 @@ class Database {
     async logAction(ticketId, action, userId, details) {
         return new Promise((resolve, reject) => {
             const stmt = this.db.prepare(`
-                INSERT INTO ticket_logs (ticket_id, action, user_id, timestamp, details)
+                INSERT INTO ticket_actions (ticket_id, action, user_id, timestamp, details)
                 VALUES (?, ?, ?, ?, ?)
             `);
+
+            const detailsJson = details ? JSON.stringify(details) : null;
+            const now = Date.now();
 
             stmt.run(
                 ticketId,
                 action,
                 userId,
-                Date.now(),
-                JSON.stringify(details),
+                now,
+                detailsJson,
                 (err) => {
                     if (err) reject(err);
                     else resolve();
@@ -390,6 +428,62 @@ class Database {
                         reject(err);
                     } else {
                         resolve(rows);
+                    }
+                }
+            );
+        });
+    }
+
+    // Get the next ticket number for a specific type and guild
+    async getNextTicketNumber(type, guildId) {
+        return new Promise((resolve, reject) => {
+            console.log(`Getting next ticket number for type: ${type}, guild: ${guildId}`);
+            
+            // First, check if there's an existing counter for this type and guild
+            this.db.get(
+                'SELECT last_number FROM ticket_counters WHERE type = ? AND guild_id = ?',
+                [type, guildId],
+                (err, row) => {
+                    if (err) {
+                        console.error('Error checking ticket counter:', err);
+                        reject(err);
+                        return;
+                    }
+                    
+                    if (row) {
+                        // Counter exists, increment it
+                        const nextNumber = row.last_number + 1;
+                        
+                        this.db.run(
+                            'UPDATE ticket_counters SET last_number = ? WHERE type = ? AND guild_id = ?',
+                            [nextNumber, type, guildId],
+                            (updateErr) => {
+                                if (updateErr) {
+                                    console.error('Error updating ticket counter:', updateErr);
+                                    reject(updateErr);
+                                    return;
+                                }
+                                
+                                console.log(`Incremented ${type} ticket counter to ${nextNumber}`);
+                                resolve(nextNumber);
+                            }
+                        );
+                    } else {
+                        // No counter exists yet, create one starting at 1
+                        this.db.run(
+                            'INSERT INTO ticket_counters (type, guild_id, last_number) VALUES (?, ?, 1)',
+                            [type, guildId],
+                            (insertErr) => {
+                                if (insertErr) {
+                                    console.error('Error creating ticket counter:', insertErr);
+                                    reject(insertErr);
+                                    return;
+                                }
+                                
+                                console.log(`Created new ${type} ticket counter starting at 1`);
+                                resolve(1);
+                            }
+                        );
                     }
                 }
             );
