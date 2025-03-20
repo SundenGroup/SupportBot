@@ -168,7 +168,7 @@ client.on(Events.InteractionCreate, async interaction => {
                         
                         // Create ticket channel
                         const ticketChannel = await interaction.guild.channels.create({
-                            name: `${type}-ticket-${name}`,
+                            name: `${type}-${name}`,
                             type: ChannelType.GuildText,
                             parent: ticketCategory,
                             permissionOverwrites: [
@@ -239,7 +239,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     try {
                         const modal = new ModalBuilder()
                             .setCustomId('create_custom_modal')
-                            .setTitle('Create Custom Management Channel');
+                            .setTitle('Create Custom Control Room');
 
                         const typeInput = new TextInputBuilder()
                             .setCustomId('type_input')
@@ -595,12 +595,12 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     // Find or create the "Closed Tickets" category
                     let closedCategory = interaction.guild.channels.cache.find(
-                        c => c.name === 'Closed Tickets' && c.type === ChannelType.GuildCategory
+                        c => c.name === `Closed ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}` && c.type === ChannelType.GuildCategory
                     );
                     
                     if (!closedCategory) {
                         closedCategory = await interaction.guild.channels.create({
-                            name: 'Closed Tickets',
+                            name: `Closed ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}`,
                             type: ChannelType.GuildCategory,
                             permissionOverwrites: [
                                 {
@@ -642,9 +642,19 @@ client.on(Events.InteractionCreate, async interaction => {
                         await controlMessage.delete().catch(err => console.error('Error deleting control message:', err));
                     }
                     
-                    // Send a message in the channel without the transcribe button
+                    // Send a message in the channel
                     await channel.send({
-                        content: `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the Closed Tickets category.`
+                        content: `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the Closed Tickets category.`,
+                        components: [
+                            new ActionRowBuilder()
+                                .addComponents(
+                                    new ButtonBuilder()
+                                        .setCustomId(`reopen_ticket_${ticketId}`)
+                                        .setLabel('Re-open Ticket')
+                                        .setStyle(ButtonStyle.Success)
+                                        .setEmoji('🔓')
+                                )
+                        ]
                     });
                     
                     await interaction.editReply({
@@ -791,12 +801,12 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     // Find or create the "Closed Tickets" category
                     let closedCategory = interaction.guild.channels.cache.find(
-                        c => c.name === 'Closed Tickets' && c.type === ChannelType.GuildCategory
+                        c => c.name === `Closed ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}` && c.type === ChannelType.GuildCategory
                     );
                     
                     if (!closedCategory) {
                         closedCategory = await interaction.guild.channels.create({
-                            name: 'Closed Tickets',
+                            name: `Closed ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}`,
                             type: ChannelType.GuildCategory,
                             permissionOverwrites: [
                                 {
@@ -840,7 +850,17 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     // Send a message in the channel
                     await channel.send({
-                        content: `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the Closed Tickets category.`
+                        content: `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the Closed Tickets category.`,
+                        components: [
+                            new ActionRowBuilder()
+                                .addComponents(
+                                    new ButtonBuilder()
+                                        .setCustomId(`reopen_ticket_${ticketId}`)
+                                        .setLabel('Re-open Ticket')
+                                        .setStyle(ButtonStyle.Success)
+                                        .setEmoji('🔓')
+                                )
+                        ]
                     });
                     
                     await interaction.editReply({
@@ -900,6 +920,50 @@ client.on(Events.InteractionCreate, async interaction => {
                     console.error('Error closing and transcribing ticket:', error);
                     await interaction.editReply({
                         content: `Failed to close the ticket: ${error.message}`,
+                        ephemeral: true
+                    });
+                }
+            }
+            else if (customId.startsWith('reopen_ticket_')) {
+                await interaction.deferReply({ ephemeral: true });
+                
+                try {
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[2];
+                    
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.editReply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Check if user has permission (creator or admin)
+                    const isCreator = interaction.user.id === ticket.creatorId;
+                    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    
+                    if (!isCreator && !isAdmin) {
+                        await interaction.editReply({
+                            content: 'You do not have permission to re-open this ticket.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Use the ticket manager to reopen the ticket
+                    await client.tickets.reopenTicket(ticketId, interaction.user);
+                    
+                    await interaction.editReply({
+                        content: `Ticket re-opened successfully.`,
+                        ephemeral: true
+                    });
+                } catch (error) {
+                    console.error('Error re-opening ticket:', error);
+                    await interaction.editReply({
+                        content: `Failed to re-open the ticket: ${error.message}`,
                         ephemeral: true
                     });
                 }

@@ -9,7 +9,7 @@ class TicketManager {
         this.activeTickets = new Map();
         this.db = null;
         this.initialized = false;
-        this.CONTROL_CHANNEL_NAME = '🎮-control-room';
+        this.CONTROL_CHANNEL_NAME = 'control-room';
         console.log('TicketManager constructor called');
     }
 
@@ -96,8 +96,8 @@ class TicketManager {
             
             // Use consistent naming format for control rooms vs tickets
             const channelName = name === 'control' 
-                ? `🎫-${type}-${name}` // Control room format
-                : `${type}-ticket-${name}`; // Ticket format
+                ? `${type}-control` // Control room format without hyphen prefix
+                : `${type}-${name}`; // Ticket format without 'ticket' in the name
 
             // Get category name based on ticket type
             let categoryName;
@@ -351,17 +351,17 @@ class TicketManager {
             .addComponents(
                 new ButtonBuilder()
                     .setCustomId('create_match')
-                    .setLabel('Create Match Management Room')
+                    .setLabel('Create Match Channel')
                     .setStyle(ButtonStyle.Primary)
                     .setEmoji('🎮'),
                 new ButtonBuilder()
                     .setCustomId('create_room')
-                    .setLabel('Create Room Management Channel')
+                    .setLabel('Create Room Channel')
                     .setStyle(ButtonStyle.Success)
                     .setEmoji('🚪'),
                 new ButtonBuilder()
                     .setCustomId('create_support')
-                    .setLabel('Create Support Ticket Control Room')
+                    .setLabel('Create Support Ticket')
                     .setStyle(ButtonStyle.Secondary)
                     .setEmoji('❓')
             );
@@ -370,7 +370,7 @@ class TicketManager {
             .addComponents(
                 new ButtonBuilder()
                     .setCustomId('create_custom')
-                    .setLabel('Create Custom Management Channel')
+                    .setLabel('Create Custom Control Room')
                     .setStyle(ButtonStyle.Danger)
                     .setEmoji('⚙️')
             );
@@ -380,10 +380,10 @@ class TicketManager {
             .setDescription('Click a button below to create a new management channel:')
             .setColor('#5865F2')
             .addFields(
-                { name: '🎮 Match Management', value: 'Create a match coordination control room' },
-                { name: '🚪 Room Management', value: 'Create a room management control room' },
-                { name: '❓ Support Ticket', value: 'Create a support ticket control room' },
-                { name: '⚙️ Custom Management', value: 'Create a custom management control room with your own name' }
+                { name: '🎮 Match Management', value: 'Create a match coordination channel' },
+                { name: '🚪 Room Management', value: 'Create a room management channel' },
+                { name: '❓ Support Ticket', value: 'Create a support ticket' },
+                { name: '⚙️ Custom Management', value: 'Create a custom control room with your own type' }
             );
 
         await channel.send({
@@ -435,6 +435,168 @@ class TicketManager {
             return transcript;
         } catch (error) {
             console.error('Error getting transcript:', error);
+            throw error;
+        }
+    }
+
+    async addUserToTicket(ticketId, userId, addedBy) {
+        if (!this.initialized) await this.init();
+        
+        try {
+            console.log(`Adding user ${userId} to ticket ${ticketId}`);
+            const ticket = await this.db.getTicket(ticketId);
+            
+            if (!ticket) {
+                throw new Error('Ticket not found');
+            }
+
+            const channel = await this.client.channels.fetch(ticket.channelId);
+            if (!channel) {
+                throw new Error('Channel not found');
+            }
+
+            // Get the user
+            const user = await this.client.users.fetch(userId);
+            if (!user) {
+                throw new Error('User not found');
+            }
+
+            // Add permission overwrite to the channel
+            await channel.permissionOverwrites.edit(userId, {
+                ViewChannel: true,
+                SendMessages: true,
+                ReadMessageHistory: true
+            });
+
+            // Add the user to the ticket participants
+            await this.db.addParticipant(ticketId, userId, 'added');
+            await this.db.logAction(ticketId, 'add_user', addedBy, { added_user: userId });
+            
+            // Send notification to the channel
+            const adder = await this.client.users.fetch(addedBy);
+            await channel.send({
+                content: `${adder} added ${user} to this ticket.`
+            });
+
+            return true;
+        } catch (error) {
+            console.error('Error adding user to ticket:', error);
+            throw error;
+        }
+    }
+
+    async reopenTicket(ticketId, reopenedBy) {
+        if (!this.initialized) await this.init();
+        
+        try {
+            console.log(`Reopening ticket ${ticketId}`);
+            const ticket = await this.db.getTicket(ticketId);
+            
+            if (!ticket) {
+                throw new Error('Ticket not found');
+            }
+            
+            if (ticket.status !== 'closed') {
+                throw new Error('Ticket is not closed and cannot be reopened');
+            }
+
+            const channel = await this.client.channels.fetch(ticket.channelId);
+            if (!channel) {
+                throw new Error('Channel not found');
+            }
+
+            // Get the original category name based on ticket type
+            let categoryName;
+            switch (ticket.type) {
+                case 'match':
+                    categoryName = 'Match Management';
+                    break;
+                case 'room':
+                    categoryName = 'Room Management';
+                    break;
+                case 'support':
+                    categoryName = 'Support Tickets';
+                    break;
+                default:
+                    categoryName = `${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)} Management`;
+            }
+            
+            // Find or create the original category
+            let category = channel.guild.channels.cache.find(
+                c => c.name === categoryName && c.type === ChannelType.GuildCategory
+            );
+            
+            if (!category) {
+                category = await channel.guild.channels.create({
+                    name: categoryName,
+                    type: ChannelType.GuildCategory
+                });
+            }
+            
+            // Move the channel back to the original category
+            await channel.setParent(category.id);
+            
+            // Update permissions to allow sending messages again
+            await channel.permissionOverwrites.edit(channel.guild.id, {
+                SendMessages: null // Remove the override
+            });
+            
+            // Add admin controls with add user and close ticket buttons
+            const adminButtons = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`add_user_${ticket.id}`)
+                        .setLabel('Add User')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('👤'),
+                    new ButtonBuilder()
+                        .setCustomId(`close_ticket_${ticket.id}`)
+                        .setLabel('Close Ticket')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('🔒')
+                );
+            
+            // Send new control buttons
+            await channel.send({
+                content: 'Ticket Controls:',
+                components: [adminButtons]
+            });
+            
+            // Update ticket status in database
+            await this.db.updateTicket(ticket.id, {
+                status: 'open',
+                reopened_at: Date.now(),
+                reopened_by: reopenedBy.id
+            });
+            
+            // Log the action
+            await this.db.logAction(ticket.id, 'reopen', reopenedBy.id, { action: 'reopened_ticket' });
+            
+            // Find and delete any closed ticket messages with reopen buttons
+            try {
+                const messages = await channel.messages.fetch({ limit: 10 });
+                const reopenMessages = messages.filter(msg => 
+                    msg.author.id === this.client.user.id && 
+                    msg.content.includes('This ticket has been closed') &&
+                    msg.components.length > 0 &&
+                    msg.components[0].components.some(c => c.customId && c.customId.startsWith('reopen_ticket_'))
+                );
+                
+                for (const [id, message] of reopenMessages) {
+                    await message.delete().catch(err => console.error('Error deleting reopen message:', err));
+                }
+            } catch (deleteErr) {
+                console.error('Error finding/deleting reopen messages:', deleteErr);
+            }
+            
+            // Send a notification in the channel
+            await channel.send({
+                content: `🔓 This ticket has been re-opened by ${reopenedBy}.`
+            });
+            
+            return ticket;
+        } catch (error) {
+            console.error('Error reopening ticket:', error);
             throw error;
         }
     }
