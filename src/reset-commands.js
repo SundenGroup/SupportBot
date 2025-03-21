@@ -4,70 +4,40 @@ const { clientId, token } = require('./config.json');
 // These are the only commands we want to register
 const commands = [
   {
-    name: "ticket",
-    description: "Manage tickets",
+    name: "close",
+    description: "Close the current ticket and move it to the appropriate closed category"
+  },
+  {
+    name: "rename",
+    description: "Rename the current ticket",
     options: [
       {
-        type: 1, // SUB_COMMAND
-        name: "create",
-        description: "Create a new ticket",
-        options: [
-          {
-            type: 3, // STRING
-            name: "type",
-            description: "Type of ticket",
-            required: true,
-            choices: [
-              { name: "Support", value: "support" },
-              { name: "Match", value: "match" },
-              { name: "Room", value: "room" }
-            ]
-          },
-          {
-            type: 3, // STRING
-            name: "name",
-            description: "Name for the ticket",
-            required: true
-          }
-        ]
-      },
-      {
-        type: 1, // SUB_COMMAND
-        name: "close",
-        description: "Close a ticket"
-      },
-      {
-        type: 1, // SUB_COMMAND
-        name: "rename",
-        description: "Rename a ticket",
-        options: [
-          {
-            type: 3, // STRING
-            name: "name",
-            description: "New name for the ticket",
-            required: true
-          }
-        ]
-      },
-      {
-        type: 1, // SUB_COMMAND
-        name: "add",
-        description: "Add a user to a ticket",
-        options: [
-          {
-            type: 6, // USER
-            name: "user",
-            description: "User to add to the ticket",
-            required: true
-          }
-        ]
-      },
-      {
-        type: 1, // SUB_COMMAND
-        name: "reopen",
-        description: "Reopen a closed ticket"
+        type: 3, // STRING
+        name: "name",
+        description: "New name for the ticket",
+        required: true
       }
     ]
+  },
+  {
+    name: "reopen",
+    description: "Reopen a closed ticket"
+  },
+  {
+    name: "add",
+    description: "Add a user to the current ticket",
+    options: [
+      {
+        type: 6, // USER
+        name: "user",
+        description: "User to add to the ticket",
+        required: true
+      }
+    ]
+  },
+  {
+    name: "help",
+    description: "Shows information about all bot commands and features"
   },
   {
     name: "setup-support",
@@ -152,9 +122,9 @@ const main = async () => {
     registeredCommands.forEach(cmd => {
       console.log(`- ${cmd.name} (ID: ${cmd.id})`);
       
-      // Log subcommands for the ticket command
-      if (cmd.name === 'ticket') {
-        console.log('  Subcommands:');
+      // Log options for commands that have them
+      if (cmd.options && cmd.options.length > 0) {
+        console.log('  Options:');
         cmd.options.forEach(option => {
           console.log(`  - ${option.name}`);
         });

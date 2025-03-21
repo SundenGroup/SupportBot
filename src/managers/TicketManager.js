@@ -132,7 +132,9 @@ class TicketManager {
                 name: channelName,
                 type: ChannelType.GuildText,
                 parent: category,
-                topic: description || `Create a ${type} ticket here`,
+                topic: description || (type === 'support' ? 
+                    `Create a ${type} ticket here` : 
+                    `Create a ${type} room here`),
                 permissionOverwrites: [
                     {
                         id: guild.id,
@@ -173,7 +175,11 @@ class TicketManager {
                 .addComponents(
                     new ButtonBuilder()
                         .setCustomId(`create_${type}_ticket`)
-                        .setLabel(`Open ${type.charAt(0).toUpperCase() + type.slice(1)} Ticket`)
+                        .setLabel(type === 'support' ? 
+                            `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Ticket` : 
+                            type === 'room' ?
+                                `Open ${type.charAt(0).toUpperCase() + type.slice(1)}` :
+                                `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Room`)
                         .setStyle(ButtonStyle.Primary)
                         .setEmoji('🎫')
                 );
@@ -181,9 +187,13 @@ class TicketManager {
             // Create the embed
             const embed = new EmbedBuilder()
                 .setTitle(`${type.charAt(0).toUpperCase() + type.slice(1)} Control Room`)
-                .setDescription(description || `Need a ${type}? Click the button below to open a ${type} ticket. Our team will assist you as soon as possible.`)
+                .setDescription(description || (type === 'support' ? 
+                    `Need a ${type}? Click the button below to open a ${type} ticket. Our team will assist you as soon as possible.` :
+                    `Need a ${type}? Click the button below to open a ${type} room. Our team will assist you as soon as possible.`))
                 .setColor('#5865F2')
-                .setFooter({ text: `${type.charAt(0).toUpperCase() + type.slice(1)} Ticket System` })
+                .setFooter({ text: type === 'support' ? 
+                    `${type.charAt(0).toUpperCase() + type.slice(1)} Ticket System` :
+                    `${type.charAt(0).toUpperCase() + type.slice(1)} Management System` })
                 .setTimestamp();
             
             // Send the message with the button
@@ -439,6 +449,86 @@ class TicketManager {
         }
     }
 
+    async getLogChannel(guild, ticketType) {
+        try {
+            // Get category name based on ticket type
+            let categoryName;
+            switch (ticketType) {
+                case 'match':
+                    categoryName = 'Match Logs';
+                    break;
+                case 'room':
+                    categoryName = 'Room Logs';
+                    break;
+                case 'support':
+                    categoryName = 'Support Logs';
+                    break;
+                case 'custom':
+                    categoryName = 'Custom Logs';
+                    break;
+                default:
+                    categoryName = `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} Logs`;
+            }
+            
+            // Find or create the specific logs category
+            let logsCategory = guild.channels.cache.find(
+                c => c.name === categoryName && c.type === ChannelType.GuildCategory
+            );
+            
+            if (!logsCategory) {
+                logsCategory = await guild.channels.create({
+                    name: categoryName,
+                    type: ChannelType.GuildCategory,
+                    permissionOverwrites: [
+                        {
+                            id: guild.id,
+                            deny: [PermissionFlagsBits.SendMessages],
+                            allow: [PermissionFlagsBits.ViewChannel]
+                        }
+                    ]
+                });
+                console.log(`Created new logs category: ${categoryName}`);
+            }
+            
+            // Format channel name based on ticket type
+            const logChannelName = `${ticketType}-logs`;
+            
+            // Find or create the log channel
+            let logChannel = guild.channels.cache.find(
+                c => c.name === logChannelName && 
+                c.type === ChannelType.GuildText &&
+                c.parentId === logsCategory.id
+            );
+            
+            if (!logChannel) {
+                logChannel = await guild.channels.create({
+                    name: logChannelName,
+                    type: ChannelType.GuildText,
+                    parent: logsCategory,
+                    topic: `Transcripts for ${ticketType} tickets`,
+                    permissionOverwrites: [
+                        {
+                            id: guild.id,
+                            deny: [PermissionFlagsBits.SendMessages],
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory]
+                        },
+                        {
+                            id: this.client.user.id,
+                            allow: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                        }
+                    ]
+                });
+                
+                console.log(`Created log channel: ${logChannelName} in category ${categoryName}`);
+            }
+            
+            return logChannel;
+        } catch (error) {
+            console.error('Error getting log channel:', error);
+            throw error;
+        }
+    }
+
     async addUserToTicket(ticketId, userId, addedBy) {
         if (!this.initialized) await this.init();
         
@@ -551,14 +641,18 @@ class TicketManager {
                         .setEmoji('👤'),
                     new ButtonBuilder()
                         .setCustomId(`close_ticket_${ticket.id}`)
-                        .setLabel('Close Ticket')
+                        .setLabel(ticket.type === 'support' ? 
+                            'Close Ticket' : 
+                            `Close ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}`)
                         .setStyle(ButtonStyle.Danger)
                         .setEmoji('🔒')
                 );
             
             // Send new control buttons
             await channel.send({
-                content: 'Ticket Controls:',
+                content: ticket.type === 'support' ? 
+                    'Ticket Controls:' : 
+                    `${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)} Controls:`,
                 components: [adminButtons]
             });
             
@@ -591,7 +685,9 @@ class TicketManager {
             
             // Send a notification in the channel
             await channel.send({
-                content: `🔓 This ticket has been re-opened by ${reopenedBy}.`
+                content: ticket.type === 'support' ?
+                    `🔓 This ticket has been re-opened by ${reopenedBy}.` :
+                    `🔓 This ${ticket.type} has been re-opened by ${reopenedBy}.`
             });
             
             return ticket;

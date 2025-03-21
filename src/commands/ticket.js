@@ -6,23 +6,6 @@ module.exports = {
         .setDescription('Manage tickets')
         .addSubcommand(subcommand =>
             subcommand
-                .setName('create')
-                .setDescription('Create a new ticket')
-                .addStringOption(option =>
-                    option.setName('type')
-                        .setDescription('Type of ticket')
-                        .setRequired(true)
-                        .addChoices(
-                            { name: 'Support', value: 'support' },
-                            { name: 'Match', value: 'match' },
-                            { name: 'Room', value: 'room' }
-                        ))
-                .addStringOption(option =>
-                    option.setName('name')
-                        .setDescription('Name for the ticket')
-                        .setRequired(true)))
-        .addSubcommand(subcommand =>
-            subcommand
                 .setName('close')
                 .setDescription('Close a ticket'))
         .addSubcommand(subcommand =>
@@ -35,14 +18,6 @@ module.exports = {
                         .setRequired(true)))
         .addSubcommand(subcommand =>
             subcommand
-                .setName('add')
-                .setDescription('Add a user to a ticket')
-                .addUserOption(option =>
-                    option.setName('user')
-                        .setDescription('User to add to the ticket')
-                        .setRequired(true)))
-        .addSubcommand(subcommand =>
-            subcommand
                 .setName('reopen')
                 .setDescription('Reopen a closed ticket')),
 
@@ -51,17 +26,11 @@ module.exports = {
 
         try {
             switch (subcommand) {
-                case 'create':
-                    await handleTicketCreate(interaction);
-                    break;
                 case 'close':
                     await handleTicketClose(interaction);
                     break;
                 case 'rename':
                     await handleTicketRename(interaction);
-                    break;
-                case 'add':
-                    await handleTicketAddUser(interaction);
                     break;
                 case 'reopen':
                     await handleTicketReopen(interaction);
@@ -81,33 +50,6 @@ module.exports = {
         }
     }
 };
-
-async function handleTicketCreate(interaction) {
-    const type = interaction.options.getString('type');
-    const name = interaction.options.getString('name');
-
-    await interaction.deferReply({ ephemeral: true });
-
-    try {
-        const ticket = await interaction.client.tickets.createTicket({
-            guild: interaction.guild,
-            creator: interaction.user,
-            type,
-            name
-        });
-
-        await interaction.editReply({
-            content: `Ticket created successfully! Channel: <#${ticket.channelId}>`,
-            ephemeral: true
-        });
-    } catch (error) {
-        console.error('Ticket creation error:', error);
-        await interaction.editReply({
-            content: `Failed to create ticket: ${error.message}`,
-            ephemeral: true
-        });
-    }
-}
 
 async function handleTicketClose(interaction) {
     await interaction.deferReply({ ephemeral: true });
@@ -173,36 +115,6 @@ async function handleTicketRename(interaction) {
         console.error('Error renaming ticket:', error);
         await interaction.editReply({
             content: `Failed to rename ticket: ${error.message}`,
-            ephemeral: true
-        });
-    }
-}
-
-async function handleTicketAddUser(interaction) {
-    await interaction.deferReply({ ephemeral: true });
-
-    try {
-        const user = interaction.options.getUser('user');
-        const ticket = await interaction.client.tickets.db.getTicketByChannel(interaction.channel.id);
-        
-        if (!ticket) {
-            await interaction.editReply({
-                content: 'This command can only be used in a ticket channel.',
-                ephemeral: true
-            });
-            return;
-        }
-
-        await interaction.client.tickets.addUserToTicket(ticket.id, user.id, interaction.user.id);
-        
-        await interaction.editReply({
-            content: `User ${user.tag} added to ticket successfully.`,
-            ephemeral: true
-        });
-    } catch (error) {
-        console.error('Error adding user to ticket:', error);
-        await interaction.editReply({
-            content: `Failed to add user to ticket: ${error.message}`,
             ephemeral: true
         });
     }

@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Collection, Events, ButtonStyle, ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits, AttachmentBuilder, ChannelType, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, Events, ButtonStyle, ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits, AttachmentBuilder, ChannelType, MessageFlags, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
 const { token } = require('./config.json');
 const TicketManager = require('./managers/TicketManager');
 const CommandHandler = require('./handlers/CommandHandler');
@@ -146,6 +146,88 @@ client.on(Events.InteractionCreate, async interaction => {
         else if (interaction.isButton()) {
             const customId = interaction.customId;
             
+            if (customId === 'help_back') {
+                // Create the main help embed again
+                const helpEmbed = new EmbedBuilder()
+                    .setTitle('Support Bot Help Menu')
+                    .setDescription('This is the only ticketing bot you\'ll ever need! Explore its features and set the best ticket system for your server!')
+                    .setColor('#5764F2')
+                    .setThumbnail('https://cdn.discordapp.com/attachments/1095706752665641012/1095706937729867847/ticket.png')
+                    .setFooter({ text: 'Support Bot | Today' })
+                    .setTimestamp();
+
+                // Add main menu options
+                helpEmbed.addFields(
+                    { 
+                        name: '🔧 Commands',
+                        value: 'Browse through Support Bot\'s commands list and find new utilities!',
+                        inline: false 
+                    },
+                    { 
+                        name: '❓ FAQ',
+                        value: 'Solutions for the most frequent questions our users have when implementing the bot on their server.',
+                        inline: false 
+                    },
+                    { 
+                        name: '🔨 Setup',
+                        value: 'The steps to follow when setting the bot for the first time on any server',
+                        inline: false 
+                    }
+                );
+
+                // Create the select menu again
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('help_category')
+                    .setPlaceholder('Select what you need help with')
+                    .addOptions([
+                        {
+                            label: 'Ticket Commands',
+                            description: 'Commands for managing tickets',
+                            value: 'ticket_commands',
+                            emoji: '🎫'
+                        },
+                        {
+                            label: 'Admin Commands',
+                            description: 'Commands for server administrators',
+                            value: 'admin_commands',
+                            emoji: '⚙️'
+                        },
+                        {
+                            label: 'Ticket Types',
+                            description: 'Different types of tickets available',
+                            value: 'ticket_types',
+                            emoji: '📝'
+                        },
+                        {
+                            label: 'Organization',
+                            description: 'How tickets are organized',
+                            value: 'organization',
+                            emoji: '📁'
+                        },
+                        {
+                            label: 'Control Rooms',
+                            description: 'How control rooms work',
+                            value: 'control_rooms',
+                            emoji: '🔧'
+                        },
+                        {
+                            label: 'All Information',
+                            description: 'View all help information at once',
+                            value: 'all_info',
+                            emoji: '📚'
+                        }
+                    ]);
+
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+
+                // Update the message with the main menu again
+                await interaction.update({
+                    embeds: [helpEmbed],
+                    components: [row]
+                });
+                return;
+            }
+            
             if (customId.startsWith('create_')) {
                 const parts = customId.split('_');
                 const action = parts[0]; // create
@@ -212,25 +294,37 @@ client.on(Events.InteractionCreate, async interaction => {
                                     .setEmoji('👤'),
                                 new ButtonBuilder()
                                     .setCustomId(`close_ticket_${ticketId}`)
-                                    .setLabel('Close Ticket')
+                                    .setLabel(type === 'support' ? 
+                                        'Close Ticket' : 
+                                        `Close ${type.charAt(0).toUpperCase() + type.slice(1)}`)
                                     .setStyle(ButtonStyle.Danger)
                                     .setEmoji('🔒')
                             );
 
                         // Send buttons with admin-only visibility
                         await ticketChannel.send({
-                            content: 'Ticket Controls:',
+                            content: type === 'support' ? 
+                                'Ticket Controls:' : 
+                                `${type.charAt(0).toUpperCase() + type.slice(1)} Controls:`,
                             components: [adminButtons]
                         });
                         
                         await interaction.editReply({
-                            content: `${type.charAt(0).toUpperCase() + type.slice(1)} ticket created: <#${ticketChannel.id}>`,
+                            content: type === 'support' ? 
+                                `${type.charAt(0).toUpperCase() + type.slice(1)} ticket created: <#${ticketChannel.id}>` :
+                                type === 'room' ? 
+                                    `Room created: <#${ticketChannel.id}>` :
+                                    `${type.charAt(0).toUpperCase() + type.slice(1)} room created: <#${ticketChannel.id}>`,
                             ephemeral: true
                         });
                     } catch (error) {
                         console.error('Error creating ticket:', error);
                         await interaction.editReply({
-                            content: `Failed to create ${type} ticket: ${error.message}`,
+                            content: type === 'support' ? 
+                                `Failed to create ${type} ticket: ${error.message}` :
+                                type === 'room' ?
+                                    `Failed to create room: ${error.message}` :
+                                    `Failed to create ${type} room: ${error.message}`,
                             ephemeral: true
                         });
                     }
@@ -239,7 +333,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     try {
                         const modal = new ModalBuilder()
                             .setCustomId('create_custom_modal')
-                            .setTitle('Create Custom Control Room');
+                            .setTitle('Create Custom Management Channel');
 
                         const typeInput = new TextInputBuilder()
                             .setCustomId('type_input')
@@ -268,7 +362,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     try {
                         // Check if a control room of this type already exists
                         const existingChannels = interaction.guild.channels.cache.filter(channel => 
-                            channel.name.includes(`🎫-${type}-control`) && 
+                            channel.name.includes(`${type}-control`) && 
                             channel.type === ChannelType.GuildText
                         );
                         
@@ -335,12 +429,12 @@ client.on(Events.InteractionCreate, async interaction => {
                         return;
                     }
                     
-                    // Get the ticket channel (which should be the current channel for a closed ticket)
-                    const ticketChannel = interaction.channel;
+                    // Get the ticket type for message formatting
+                    const ticketType = ticket.type;
                     
                     // Generate transcript without saving messages (which causes the UNIQUE constraint error)
                     const messages = await ticketChannel.messages.fetch({ limit: 100 });
-                    const transcript = `Transcript for ${ticket.type}-${ticket.name}\n` +
+                    const transcript = `Transcript for ${ticketType}-${ticket.name}\n` +
                         `Created by: ${interaction.guild.members.cache.get(ticket.creatorId)?.user.tag || ticket.creatorId}\n` +
                         `Created at: ${new Date(ticket.createdAt).toLocaleString()}\n\n` +
                         Array.from(messages.values())
@@ -356,13 +450,36 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     // Send transcript to the selected channel
                     await channel.send({
-                        content: `Transcript for ticket #${ticketId} (requested by ${interaction.user.tag}):`,
+                        content: ticketType === 'support' ?
+                            `Transcript for ticket #${ticket.name} (ID: ${ticketId}) - Requested by ${interaction.user.tag}:` :
+                            `Transcript for ${ticketType} #${ticket.name} (ID: ${ticketId}) - Requested by ${interaction.user.tag}:`,
                         files: [attachment]
                     });
                     
+                    // Get category name for messaging
+                    let logsCategoryName;
+                    switch (ticketType) {
+                        case 'match':
+                            logsCategoryName = 'Match Logs';
+                            break;
+                        case 'room':
+                            logsCategoryName = 'Room Logs';
+                            break; 
+                        case 'support':
+                            logsCategoryName = 'Support Logs';
+                            break;
+                        case 'custom':
+                            logsCategoryName = 'Custom Logs';
+                            break;
+                        default:
+                            logsCategoryName = `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} Logs`;
+                    }
+                    
                     // Notify the user
                     await interaction.editReply({
-                        content: `Ticket transcribed successfully! Transcript sent to <#${channel.id}>.`,
+                        content: ticketType === 'support' ?
+                            `Ticket transcribed successfully! Transcript sent to <#${channel.id}>.` :
+                            `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} transcribed successfully! Transcript sent to <#${channel.id}>.`,
                         components: []
                     });
                 } catch (error) {
@@ -390,10 +507,109 @@ client.on(Events.InteractionCreate, async interaction => {
                     return;
                 }
 
+                // Defer the reply while we process this
+                await interaction.deferReply({ ephemeral: true });
+
                 try {
                     // Extract ticket ID from the custom ID
                     const ticketId = customId.split('_')[1];
                     
+                    // Get the ticket to determine the ticket type
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.editReply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    const ticketType = ticket.type;
+                    
+                    // First try to automatically send the transcript to the appropriate log channel
+                    try {
+                        const logChannel = await client.tickets.getLogChannel(interaction.guild, ticketType);
+                        
+                        if (logChannel) {
+                            // Get category name for messaging
+                            let logsCategoryName;
+                            switch (ticketType) {
+                                case 'match':
+                                    logsCategoryName = 'Match Logs';
+                                    break;
+                                case 'room':
+                                    logsCategoryName = 'Room Logs';
+                                    break; 
+                                case 'support':
+                                    logsCategoryName = 'Support Logs';
+                                    break;
+                                case 'custom':
+                                    logsCategoryName = 'Custom Logs';
+                                    break;
+                                default:
+                                    logsCategoryName = `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} Logs`;
+                            }
+                            
+                            // Get the ticket channel
+                            const ticketChannel = await interaction.guild.channels.fetch(ticket.channelId).catch(() => null);
+                            
+                            if (!ticketChannel) {
+                                await interaction.editReply({
+                                    content: 'The ticket channel no longer exists.',
+                                    ephemeral: true
+                                });
+                                return;
+                            }
+                            
+                            // Generate transcript
+                            const messages = await ticketChannel.messages.fetch({ limit: 100 });
+                            const transcript = `Transcript for ${ticketType}-${ticket.name}\n` +
+                                `Created by: ${interaction.guild.members.cache.get(ticket.creatorId)?.user.tag || ticket.creatorId}\n` +
+                                `Created at: ${new Date(ticket.createdAt).toLocaleString()}\n\n` +
+                                Array.from(messages.values())
+                                    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+                                    .map(msg => `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}`)
+                                    .join('\n\n');
+                            
+                            // Create transcript file
+                            const buffer = Buffer.from(transcript, 'utf8');
+                            const attachment = new AttachmentBuilder(buffer, {
+                                name: `transcript-${ticketId}.txt`
+                            });
+                            
+                            // Send transcript to the log channel
+                            await logChannel.send({
+                                content: ticketType === 'support' ? 
+                                    `Transcript for ticket #${ticket.name} (ID: ${ticketId}) - Requested by ${interaction.user.tag}:` :
+                                    `Transcript for ${ticketType} #${ticket.name} (ID: ${ticketId}) - Requested by ${interaction.user.tag}:`,
+                                files: [attachment]
+                            });
+                            
+                            // Let the user know and offer option to send to another channel
+                            const selectButton = new ButtonBuilder()
+                                .setCustomId(`send_to_other_channel_${ticketId}`)
+                                .setLabel('Send to Another Channel')
+                                .setStyle(ButtonStyle.Primary)
+                                .setEmoji('📑');
+                            
+                            const row = new ActionRowBuilder().addComponents(selectButton);
+                            
+                            await interaction.editReply({
+                                content: ticketType === 'support' ?
+                                    `Transcript for ticket #${ticket.name} has been automatically sent to the ${ticketType}-logs channel in the ${logsCategoryName} category.` :
+                                    `Transcript for ${ticketType} #${ticket.name} has been automatically sent to the ${ticketType}-logs channel in the ${logsCategoryName} category.`,
+                                components: [row],
+                                ephemeral: true
+                            });
+                            
+                            return;
+                        }
+                    } catch (logError) {
+                        console.error('Error getting log channel or generating transcript:', logError);
+                        // Continue to manual selection if automatic fails
+                    }
+                    
+                    // Fall back to manual channel selection if we couldn't use the log channel
                     // Get all text channels in the guild that the user can send messages to
                     const availableChannels = interaction.guild.channels.cache
                         .filter(channel => 
@@ -408,15 +624,16 @@ client.on(Events.InteractionCreate, async interaction => {
                         }));
 
                     if (availableChannels.length === 0) {
-                        await interaction.reply({
-                            content: 'No available channels found where you can send the transcript.',
+                        await interaction.editReply({
+                            content: ticketType === 'support' ?
+                                `No available channels found where you can send the ticket transcript.` :
+                                `No available channels found where you can send the ${ticketType} transcript.`,
                             ephemeral: true
                         });
                         return;
                     }
 
                     // Create a select menu for channels (max 25 options as per Discord's limit)
-                    const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
                     
                     const selectMenu = new StringSelectMenuBuilder()
                         .setCustomId(`select_channel_${ticketId}`)
@@ -437,10 +654,88 @@ client.on(Events.InteractionCreate, async interaction => {
                     const row = new ActionRowBuilder().addComponents(selectMenu);
                     
                     // Send a message with the select menu
-                    await interaction.reply({
-                        content: 'Select a channel to send the transcript to:',
+                    await interaction.editReply({
+                        content: ticketType === 'support' ?
+                            `No appropriate logs channel found. Please select a channel to send the ticket transcript to:` :
+                            `No appropriate logs channel found. Please select a channel to send the ${ticketType} transcript to:`,
                         components: [row],
                         ephemeral: true
+                    });
+                } catch (error) {
+                    console.error('Error handling transcribe request:', error);
+                    await interaction.editReply({
+                        content: `Failed to process transcript request: ${error.message}`,
+                        ephemeral: true
+                    });
+                }
+            }
+            else if (customId.startsWith('send_to_other_channel_')) {
+                // Extract ticket ID from the custom ID
+                const ticketId = customId.split('_')[4];
+                
+                try {
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.reply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    const ticketType = ticket.type;
+                    
+                    // Get all text channels in the guild that the user can send messages to
+                    const availableChannels = interaction.guild.channels.cache
+                        .filter(channel => 
+                            channel.type === ChannelType.GuildText && 
+                            channel.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)
+                        )
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(channel => ({
+                            label: channel.name,
+                            value: channel.id,
+                            description: channel.parent ? `Category: ${channel.parent.name}` : 'No category'
+                        }));
+
+                    // Check if there are available channels
+                    if (availableChannels.length === 0) {
+                        await interaction.reply({
+                            content: ticketType === 'support' ?
+                                `No available channels found where you can send the ticket transcript.` :
+                                `No available channels found where you can send the ${ticketType} transcript.`,
+                            ephemeral: true
+                        });
+                        return;
+                    }
+
+                    // Create a select menu for channels (max 25 options as per Discord's limit)
+                    
+                    const selectMenu = new StringSelectMenuBuilder()
+                        .setCustomId(`select_channel_${ticketId}`)
+                        .setPlaceholder('Select a channel to send the transcript to')
+                        .setMinValues(1)
+                        .setMaxValues(1);
+                        
+                    // Add options to the select menu (limited to 25 by Discord)
+                    availableChannels.slice(0, 25).forEach(channel => {
+                        selectMenu.addOptions(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(channel.label)
+                                .setValue(channel.value)
+                                .setDescription(channel.description.substring(0, 100)) // Max 100 chars for description
+                        );
+                    });
+                    
+                    const row = new ActionRowBuilder().addComponents(selectMenu);
+                    
+                    // Send a message with the select menu
+                    await interaction.update({
+                        content: ticketType === 'support' ?
+                            `Select a channel to send the ticket transcript to:` :
+                            `Select a channel to send the ${ticketType} transcript to:`,
+                        components: [row]
                     });
                 } catch (error) {
                     console.error('Error creating channel select menu:', error);
@@ -528,6 +823,9 @@ client.on(Events.InteractionCreate, async interaction => {
                         return;
                     }
                     
+                    // Get the ticket type for message formatting
+                    const ticketType = ticket.type;
+                    
                     // Show confirmation buttons for closing or deleting the ticket
                     const confirmButtons = new ActionRowBuilder()
                         .addComponents(
@@ -543,7 +841,9 @@ client.on(Events.InteractionCreate, async interaction => {
                                 .setEmoji('📝'),
                             new ButtonBuilder()
                                 .setCustomId(`confirm_delete_${ticketId}`)
-                                .setLabel('Delete Ticket')
+                                .setLabel(ticketType === 'support' ? 
+                                    'Delete Ticket' : 
+                                    `Delete ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`)
                                 .setStyle(ButtonStyle.Danger)
                                 .setEmoji('🗑️'),
                             new ButtonBuilder()
@@ -554,7 +854,9 @@ client.on(Events.InteractionCreate, async interaction => {
                         );
                     
                     await interaction.reply({
-                        content: 'What would you like to do with this ticket?',
+                        content: ticketType === 'support' ?
+                            'What would you like to do with this ticket?' :
+                            `What would you like to do with this ${ticketType}?`,
                         components: [confirmButtons],
                         ephemeral: true
                     });
@@ -593,14 +895,21 @@ client.on(Events.InteractionCreate, async interaction => {
                         return;
                     }
                     
-                    // Find or create the "Closed Tickets" category
+                    // Get the ticket type for message formatting
+                    const ticketType = ticket.type;
+                    
+                    // Find or create a type-specific closed category
+                    const closedCategoryName = ticketType === 'support' ? 
+                        'Closed Support Tickets' : 
+                        `Closed ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`;
+                    
                     let closedCategory = interaction.guild.channels.cache.find(
-                        c => c.name === `Closed ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}` && c.type === ChannelType.GuildCategory
+                        c => c.name === closedCategoryName && c.type === ChannelType.GuildCategory
                     );
                     
                     if (!closedCategory) {
                         closedCategory = await interaction.guild.channels.create({
-                            name: `Closed ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}`,
+                            name: closedCategoryName,
                             type: ChannelType.GuildCategory,
                             permissionOverwrites: [
                                 {
@@ -634,7 +943,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     const messages = await channel.messages.fetch({ limit: 10 });
                     const controlMessage = messages.find(msg => 
                         msg.author.id === client.user.id && 
-                        msg.content === 'Ticket Controls:' &&
+                        (msg.content === 'Ticket Controls:' || msg.content.endsWith(' Controls:')) &&
                         msg.components.length > 0
                     );
                     
@@ -644,23 +953,156 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     // Send a message in the channel
                     await channel.send({
-                        content: `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the Closed Tickets category.`,
-                        components: [
-                            new ActionRowBuilder()
-                                .addComponents(
-                                    new ButtonBuilder()
-                                        .setCustomId(`reopen_ticket_${ticketId}`)
-                                        .setLabel('Re-open Ticket')
-                                        .setStyle(ButtonStyle.Success)
-                                        .setEmoji('🔓')
-                                )
-                        ]
+                        content: ticketType === 'support' ?
+                            `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the ${closedCategoryName} category.` :
+                            `🔒 This ${ticketType} has been closed by ${interaction.user}. The ${ticketType} has been moved to the ${closedCategoryName} category.`
                     });
                     
                     await interaction.editReply({
-                        content: `Ticket closed successfully. The ticket has been moved to the Closed Tickets category.`,
+                        content: ticketType === 'support' ?
+                            `Ticket closed successfully. The ticket has been moved to the ${closedCategoryName} category. Preparing transcript...` :
+                            `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} closed successfully. The ${ticketType} has been moved to the ${closedCategoryName} category. Preparing transcript...`,
                         ephemeral: true
                     });
+                    
+                    // Generate the transcript
+                    try {
+                        // Get all messages in the channel
+                        const allMessages = await channel.messages.fetch({ limit: 100 });
+                        const transcript = `Transcript for ${ticketType}-${ticket.name}\n` +
+                            `Created by: ${interaction.guild.members.cache.get(ticket.creatorId)?.user.tag || ticket.creatorId}\n` +
+                            `Created at: ${new Date(ticket.createdAt).toLocaleString()}\n` +
+                            `Closed by: ${interaction.user.tag}\n` +
+                            `Closed at: ${new Date().toLocaleString()}\n\n` +
+                            Array.from(allMessages.values())
+                                .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+                                .map(msg => `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}`)
+                                .join('\n\n');
+                        
+                        // Create transcript file
+                        const buffer = Buffer.from(transcript, 'utf8');
+                        const attachment = new AttachmentBuilder(buffer, {
+                            name: `transcript-${ticketId}.txt`
+                        });
+                        
+                        // Try to get the appropriate log channel for this ticket type
+                        let logChannel = null;
+                        
+                        try {
+                            logChannel = await client.tickets.getLogChannel(interaction.guild, ticketType);
+                            
+                            // Get category name for messaging
+                            let logsCategoryName;
+                            switch (ticketType) {
+                                case 'match':
+                                    logsCategoryName = 'Match Logs';
+                                    break;
+                                case 'room':
+                                    logsCategoryName = 'Room Logs';
+                                    break; 
+                                case 'support':
+                                    logsCategoryName = 'Support Logs';
+                                    break;
+                                case 'custom':
+                                    logsCategoryName = 'Custom Logs';
+                                    break;
+                                default:
+                                    logsCategoryName = `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} Logs`;
+                            }
+                            
+                            // Send transcript to the log channel
+                            if (logChannel) {
+                                await logChannel.send({
+                                    content: ticketType === 'support' ? 
+                                        `Transcript for ticket #${ticket.name} (ID: ${ticketId}) - Closed by ${interaction.user.tag}:` :
+                                        `Transcript for ${ticketType} #${ticket.name} (ID: ${ticketId}) - Closed by ${interaction.user.tag}:`,
+                                    files: [attachment]
+                                });
+                                
+                                // Let the user know the transcript was saved and offer option to send to another channel
+                                const selectButton = new ButtonBuilder()
+                                    .setCustomId(`transcribe_${ticketId}`)
+                                    .setLabel('Send Transcript to Another Channel')
+                                    .setStyle(ButtonStyle.Primary)
+                                    .setEmoji('📑');
+                                
+                                const row = new ActionRowBuilder().addComponents(selectButton);
+                                
+                                await interaction.followUp({
+                                    content: ticketType === 'support' ?
+                                        `Ticket closed and transcribed successfully. A transcript has been saved to the ${ticketType}-logs channel in the ${logsCategoryName} category.` :
+                                        `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} closed and transcribed successfully. A transcript has been saved to the ${ticketType}-logs channel in the ${logsCategoryName} category.`,
+                                    components: [row],
+                                    ephemeral: true
+                                });
+                                return;
+                            }
+                        } catch (logError) {
+                            console.error('Error getting log channel:', logError);
+                            // Fall through to manual selection if automatic fails
+                        }
+                        
+                        // If we get here, either logChannel wasn't found or there was an error
+                        // Proceed with manual channel selection
+                        // Get all text channels in the guild that the user can send messages to
+                        const availableChannels = interaction.guild.channels.cache
+                            .filter(ch => 
+                                ch.type === ChannelType.GuildText && 
+                                ch.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)
+                            )
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map(ch => ({
+                                label: ch.name,
+                                value: ch.id,
+                                description: ch.parent ? `Category: ${ch.parent.name}` : 'No category'
+                            }));
+
+                        if (availableChannels.length === 0) {
+                            await interaction.followUp({
+                                content: ticketType === 'support' ?
+                                    `No default logs channel found for tickets. Please select a channel to send the transcript to:` :
+                                    `No default logs channel found for ${ticketType}s. Please select a channel to send the transcript to:`,
+                                components: [row],
+                                ephemeral: true
+                            });
+                            return;
+                        }
+
+                        // Create a select menu for channels (max 25 options as per Discord's limit)
+                        
+                        const selectMenu = new StringSelectMenuBuilder()
+                            .setCustomId(`select_channel_${ticketId}`)
+                            .setPlaceholder('Select a channel to send the transcript to')
+                            .setMinValues(1)
+                            .setMaxValues(1);
+                            
+                        // Add options to the select menu (limited to 25 by Discord)
+                        availableChannels.slice(0, 25).forEach(ch => {
+                            selectMenu.addOptions(
+                                new StringSelectMenuOptionBuilder()
+                                    .setLabel(ch.label)
+                                    .setValue(ch.value)
+                                    .setDescription(ch.description.substring(0, 100)) // Max 100 chars for description
+                            );
+                        });
+                        
+                        const row = new ActionRowBuilder().addComponents(selectMenu);
+                        
+                        // Send a message with the select menu
+                        await interaction.followUp({
+                            content: ticketType === 'support' ?
+                                `No default logs channel found for tickets. Please select a channel to send the transcript to:` :
+                                `No default logs channel found for ${ticketType}s. Please select a channel to send the transcript to:`,
+                            components: [row],
+                            ephemeral: true
+                        });
+                    } catch (transcriptError) {
+                        console.error('Error generating and sending transcript:', transcriptError);
+                        await interaction.followUp({
+                            content: `An error occurred while generating the transcript: ${transcriptError.message}`,
+                            ephemeral: true
+                        });
+                    }
                 } catch (error) {
                     console.error('Error closing ticket:', error);
                     await interaction.editReply({
@@ -724,7 +1166,9 @@ client.on(Events.InteractionCreate, async interaction => {
                             
                             if (logsChannel) {
                                 await logsChannel.send({
-                                    content: `Transcript for deleted ticket #${ticketId} (${ticket.type}-${ticket.name}) - Deleted by ${interaction.user.tag}:`,
+                                    content: ticket.type === 'support' ?
+                                        `Transcript for deleted ticket #${ticketId} (${ticket.type}-${ticket.name}) - Deleted by ${interaction.user.tag}:` :
+                                        `Transcript for deleted ${ticket.type} #${ticketId} (${ticket.type}-${ticket.name}) - Deleted by ${interaction.user.tag}:`,
                                     files: [attachment]
                                 });
                             }
@@ -754,7 +1198,9 @@ client.on(Events.InteractionCreate, async interaction => {
                     client.tickets.activeTickets.delete(ticketId);
                     
                     await interaction.editReply({
-                        content: `Ticket deleted successfully.`,
+                        content: ticketType === 'support' ?
+                            `Ticket deleted successfully.` :
+                            `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} deleted successfully.`,
                         ephemeral: true
                     });
                 } catch (error) {
@@ -799,14 +1245,21 @@ client.on(Events.InteractionCreate, async interaction => {
                         return;
                     }
                     
-                    // Find or create the "Closed Tickets" category
+                    // Get the ticket type for message formatting
+                    const ticketType = ticket.type;
+                    
+                    // Find or create a type-specific closed category
+                    const closedCategoryName = ticketType === 'support' ? 
+                        'Closed Support Tickets' : 
+                        `Closed ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`;
+                    
                     let closedCategory = interaction.guild.channels.cache.find(
-                        c => c.name === `Closed ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}` && c.type === ChannelType.GuildCategory
+                        c => c.name === closedCategoryName && c.type === ChannelType.GuildCategory
                     );
                     
                     if (!closedCategory) {
                         closedCategory = await interaction.guild.channels.create({
-                            name: `Closed ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}`,
+                            name: closedCategoryName,
                             type: ChannelType.GuildCategory,
                             permissionOverwrites: [
                                 {
@@ -840,7 +1293,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     const messages = await channel.messages.fetch({ limit: 10 });
                     const controlMessage = messages.find(msg => 
                         msg.author.id === client.user.id && 
-                        msg.content === 'Ticket Controls:' &&
+                        (msg.content === 'Ticket Controls:' || msg.content.endsWith(' Controls:')) &&
                         msg.components.length > 0
                     );
                     
@@ -850,120 +1303,160 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     // Send a message in the channel
                     await channel.send({
-                        content: `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the Closed Tickets category.`,
-                        components: [
-                            new ActionRowBuilder()
-                                .addComponents(
-                                    new ButtonBuilder()
-                                        .setCustomId(`reopen_ticket_${ticketId}`)
-                                        .setLabel('Re-open Ticket')
-                                        .setStyle(ButtonStyle.Success)
-                                        .setEmoji('🔓')
-                                )
-                        ]
+                        content: ticketType === 'support' ?
+                            `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the ${closedCategoryName} category.` :
+                            `🔒 This ${ticketType} has been closed by ${interaction.user}. The ${ticketType} has been moved to the ${closedCategoryName} category.`
                     });
                     
                     await interaction.editReply({
-                        content: `Ticket closed successfully. The ticket has been moved to the Closed Tickets category. Preparing transcript options...`,
+                        content: ticketType === 'support' ?
+                            `Ticket closed successfully. The ticket has been moved to the ${closedCategoryName} category. Preparing transcript...` :
+                            `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} closed successfully. The ${ticketType} has been moved to the ${closedCategoryName} category. Preparing transcript...`,
                         ephemeral: true
                     });
                     
-                    // Get all text channels in the guild that the user can send messages to
-                    const availableChannels = interaction.guild.channels.cache
-                        .filter(ch => 
-                            ch.type === ChannelType.GuildText && 
-                            ch.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)
-                        )
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                        .map(ch => ({
-                            label: ch.name,
-                            value: ch.id,
-                            description: ch.parent ? `Category: ${ch.parent.name}` : 'No category'
-                        }));
+                    // Generate the transcript
+                    try {
+                        // Get all messages in the channel
+                        const allMessages = await channel.messages.fetch({ limit: 100 });
+                        const transcript = `Transcript for ${ticketType}-${ticket.name}\n` +
+                            `Created by: ${interaction.guild.members.cache.get(ticket.creatorId)?.user.tag || ticket.creatorId}\n` +
+                            `Created at: ${new Date(ticket.createdAt).toLocaleString()}\n` +
+                            `Closed by: ${interaction.user.tag}\n` +
+                            `Closed at: ${new Date().toLocaleString()}\n\n` +
+                            Array.from(allMessages.values())
+                                .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+                                .map(msg => `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}`)
+                                .join('\n\n');
+                        
+                        // Create transcript file
+                        const buffer = Buffer.from(transcript, 'utf8');
+                        const attachment = new AttachmentBuilder(buffer, {
+                            name: `transcript-${ticketId}.txt`
+                        });
+                        
+                        // Try to get the appropriate log channel for this ticket type
+                        let logChannel = null;
+                        
+                        try {
+                            logChannel = await client.tickets.getLogChannel(interaction.guild, ticketType);
+                            
+                            // Get category name for messaging
+                            let logsCategoryName;
+                            switch (ticketType) {
+                                case 'match':
+                                    logsCategoryName = 'Match Logs';
+                                    break;
+                                case 'room':
+                                    logsCategoryName = 'Room Logs';
+                                    break; 
+                                case 'support':
+                                    logsCategoryName = 'Support Logs';
+                                    break;
+                                case 'custom':
+                                    logsCategoryName = 'Custom Logs';
+                                    break;
+                                default:
+                                    logsCategoryName = `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} Logs`;
+                            }
+                            
+                            // Send transcript to the log channel
+                            if (logChannel) {
+                                await logChannel.send({
+                                    content: ticketType === 'support' ? 
+                                        `Transcript for ticket #${ticket.name} (ID: ${ticketId}) - Closed by ${interaction.user.tag}:` :
+                                        `Transcript for ${ticketType} #${ticket.name} (ID: ${ticketId}) - Closed by ${interaction.user.tag}:`,
+                                    files: [attachment]
+                                });
+                                
+                                // Let the user know the transcript was saved and offer option to send to another channel
+                                const selectButton = new ButtonBuilder()
+                                    .setCustomId(`transcribe_${ticketId}`)
+                                    .setLabel('Send Transcript to Another Channel')
+                                    .setStyle(ButtonStyle.Primary)
+                                    .setEmoji('📑');
+                                
+                                const row = new ActionRowBuilder().addComponents(selectButton);
+                                
+                                await interaction.followUp({
+                                    content: ticketType === 'support' ?
+                                        `Ticket closed and transcribed successfully. A transcript has been saved to the ${ticketType}-logs channel in the ${logsCategoryName} category.` :
+                                        `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} closed and transcribed successfully. A transcript has been saved to the ${ticketType}-logs channel in the ${logsCategoryName} category.`,
+                                    components: [row],
+                                    ephemeral: true
+                                });
+                                return;
+                            }
+                        } catch (logError) {
+                            console.error('Error getting log channel:', logError);
+                            // Fall through to manual selection if automatic fails
+                        }
+                        
+                        // If we get here, either logChannel wasn't found or there was an error
+                        // Proceed with manual channel selection
+                        // Get all text channels in the guild that the user can send messages to
+                        const availableChannels = interaction.guild.channels.cache
+                            .filter(ch => 
+                                ch.type === ChannelType.GuildText && 
+                                ch.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)
+                            )
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map(ch => ({
+                                label: ch.name,
+                                value: ch.id,
+                                description: ch.parent ? `Category: ${ch.parent.name}` : 'No category'
+                            }));
 
-                    if (availableChannels.length === 0) {
+                        if (availableChannels.length === 0) {
+                            await interaction.followUp({
+                                content: ticketType === 'support' ?
+                                    `No default logs channel found for tickets. Please select a channel to send the transcript to:` :
+                                    `No default logs channel found for ${ticketType}s. Please select a channel to send the transcript to:`,
+                                components: [row],
+                                ephemeral: true
+                            });
+                            return;
+                        }
+
+                        // Create a select menu for channels (max 25 options as per Discord's limit)
+                        
+                        const selectMenu = new StringSelectMenuBuilder()
+                            .setCustomId(`select_channel_${ticketId}`)
+                            .setPlaceholder('Select a channel to send the transcript to')
+                            .setMinValues(1)
+                            .setMaxValues(1);
+                            
+                        // Add options to the select menu (limited to 25 by Discord)
+                        availableChannels.slice(0, 25).forEach(ch => {
+                            selectMenu.addOptions(
+                                new StringSelectMenuOptionBuilder()
+                                    .setLabel(ch.label)
+                                    .setValue(ch.value)
+                                    .setDescription(ch.description.substring(0, 100)) // Max 100 chars for description
+                            );
+                        });
+                        
+                        const row = new ActionRowBuilder().addComponents(selectMenu);
+                        
+                        // Send a message with the select menu
                         await interaction.followUp({
-                            content: 'No available channels found where you can send the transcript.',
+                            content: ticketType === 'support' ?
+                                `No default logs channel found for tickets. Please select a channel to send the transcript to:` :
+                                `No default logs channel found for ${ticketType}s. Please select a channel to send the transcript to:`,
+                            components: [row],
                             ephemeral: true
                         });
-                        return;
+                    } catch (transcriptError) {
+                        console.error('Error generating and sending transcript:', transcriptError);
+                        await interaction.followUp({
+                            content: `An error occurred while generating the transcript: ${transcriptError.message}`,
+                            ephemeral: true
+                        });
                     }
-
-                    // Create a select menu for channels (max 25 options as per Discord's limit)
-                    const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
-                    
-                    const selectMenu = new StringSelectMenuBuilder()
-                        .setCustomId(`select_channel_${ticketId}`)
-                        .setPlaceholder('Select a channel to send the transcript to')
-                        .setMinValues(1)
-                        .setMaxValues(1);
-                        
-                    // Add options to the select menu (limited to 25 by Discord)
-                    availableChannels.slice(0, 25).forEach(ch => {
-                        selectMenu.addOptions(
-                            new StringSelectMenuOptionBuilder()
-                                .setLabel(ch.label)
-                                .setValue(ch.value)
-                                .setDescription(ch.description.substring(0, 100)) // Max 100 chars for description
-                        );
-                    });
-                    
-                    const row = new ActionRowBuilder().addComponents(selectMenu);
-                    
-                    // Send a message with the select menu
-                    await interaction.followUp({
-                        content: 'Select a channel to send the transcript to:',
-                        components: [row],
-                        ephemeral: true
-                    });
                 } catch (error) {
                     console.error('Error closing and transcribing ticket:', error);
                     await interaction.editReply({
                         content: `Failed to close the ticket: ${error.message}`,
-                        ephemeral: true
-                    });
-                }
-            }
-            else if (customId.startsWith('reopen_ticket_')) {
-                await interaction.deferReply({ ephemeral: true });
-                
-                try {
-                    // Extract ticket ID from the custom ID
-                    const ticketId = customId.split('_')[2];
-                    
-                    // Get the ticket data
-                    const ticket = await client.tickets.db.getTicket(ticketId);
-                    if (!ticket) {
-                        await interaction.editReply({
-                            content: 'Ticket not found or has been deleted.',
-                            ephemeral: true
-                        });
-                        return;
-                    }
-                    
-                    // Check if user has permission (creator or admin)
-                    const isCreator = interaction.user.id === ticket.creatorId;
-                    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
-                    
-                    if (!isCreator && !isAdmin) {
-                        await interaction.editReply({
-                            content: 'You do not have permission to re-open this ticket.',
-                            ephemeral: true
-                        });
-                        return;
-                    }
-                    
-                    // Use the ticket manager to reopen the ticket
-                    await client.tickets.reopenTicket(ticketId, interaction.user);
-                    
-                    await interaction.editReply({
-                        content: `Ticket re-opened successfully.`,
-                        ephemeral: true
-                    });
-                } catch (error) {
-                    console.error('Error re-opening ticket:', error);
-                    await interaction.editReply({
-                        content: `Failed to re-open the ticket: ${error.message}`,
                         ephemeral: true
                     });
                 }
@@ -982,11 +1475,11 @@ client.on(Events.InteractionCreate, async interaction => {
                 try {
                     // Check if a control room of this type already exists
                     const existingChannels = interaction.guild.channels.cache.filter(channel => 
-                        channel.name.includes(`🎫-${customType}-control`) && 
+                        channel.name.includes(`${customType}-control`) && 
                         channel.type === ChannelType.GuildText
                     );
                     
-                    if (existingChannels.size > 0) {
+                    if (existingChannels.size > 0 && customType !== 'custom') {
                         const existingChannel = existingChannels.first();
                         await interaction.editReply({
                             content: `A ${customType} control room already exists: <#${existingChannel.id}>. Only one control room of each type is allowed at a time.`,
@@ -1142,6 +1635,137 @@ client.on(Events.InteractionCreate, async interaction => {
             // Handle select menu interactions
             const customId = interaction.customId;
             
+            if (customId === 'help_category') {
+                const selected = interaction.values[0];
+                const helpEmbed = new EmbedBuilder()
+                    .setColor('#5764F2')
+                    .setFooter({ text: 'Support Bot | Today' })
+                    .setTimestamp();
+                
+                switch (selected) {
+                    case 'ticket_commands':
+                        helpEmbed
+                            .setTitle('Ticket Commands')
+                            .setDescription('Commands for managing your tickets')
+                            .addFields(
+                                { name: '`/ticket close`', value: 'Close the current ticket and move it to the appropriate closed category', inline: false },
+                                { name: '`/ticket rename [name]`', value: 'Rename the current ticket', inline: false },
+                                { name: '`/ticket reopen`', value: 'Reopen a closed ticket', inline: false },
+                                { name: '`/add [user]`', value: 'Add a user to the current ticket', inline: false },
+                                { name: '`/help`', value: 'Show this help menu', inline: false }
+                            );
+                        break;
+                    case 'admin_commands':
+                        helpEmbed
+                            .setTitle('Admin Commands')
+                            .setDescription('Commands for server administrators')
+                            .addFields(
+                                { name: '`/setup-support`', value: 'Creates a dedicated support ticket channel with customizable title and description', inline: false }
+                            );
+                        break;
+                    case 'ticket_types':
+                        helpEmbed
+                            .setTitle('Ticket Types')
+                            .setDescription('The bot supports different types of tickets for various purposes')
+                            .addFields(
+                                { name: 'Support Tickets', value: 'For general user support and assistance', inline: false },
+                                { name: 'Match Management', value: 'For coordinating and organizing matches', inline: false },
+                                { name: 'Room Management', value: 'For managing rooms and channels', inline: false },
+                                { name: 'Custom Management', value: 'Create your own custom ticket types for specific needs', inline: false }
+                            );
+                        break;
+                    case 'organization':
+                        helpEmbed
+                            .setTitle('Ticket Organization')
+                            .setDescription('How tickets are organized in your server')
+                            .addFields(
+                                { name: 'Active Tickets', value: 'Each ticket type has its own category (Support Tickets, Match Management, etc.)', inline: false },
+                                { name: 'Closed Tickets', value: 'Moved to type-specific closed categories (Closed Support Tickets, Closed Match, etc.)', inline: false },
+                                { name: 'Transcripts', value: 'Automatically saved to type-specific logs channels in their respective categories', inline: false }
+                            );
+                        break;
+                    case 'control_rooms':
+                        helpEmbed
+                            .setTitle('Control Rooms')
+                            .setDescription('Control rooms provide buttons for users to create tickets easily without commands')
+                            .addFields(
+                                { name: 'Main Control Room', value: 'Central hub with buttons for creating all types of tickets', inline: false },
+                                { name: 'Match Control', value: 'Create match-specific tickets with the click of a button', inline: false },
+                                { name: 'Room Control', value: 'Create room management tickets easily', inline: false },
+                                { name: 'Support Control', value: 'Create support tickets for user assistance', inline: false },
+                                { name: 'Custom Control', value: 'Create custom ticket types for specific needs', inline: false }
+                            );
+                        break;
+                    case 'all_info':
+                        helpEmbed
+                            .setTitle('Support Bot - All Information')
+                            .setDescription('Complete overview of all bot features and commands')
+                            .addFields(
+                                // Commands
+                                { 
+                                    name: '🎫 Ticket Commands',
+                                    value: '`/ticket close` - Close the current ticket\n' +
+                                           '`/ticket rename [name]` - Rename the current ticket\n' +
+                                           '`/ticket reopen` - Reopen a closed ticket\n' +
+                                           '`/add [user]` - Add a user to the current ticket',
+                                    inline: false 
+                                },
+                                { 
+                                    name: '⚙️ Admin Commands',
+                                    value: '`/setup-support` - Create a dedicated support ticket channel\n' +
+                                           '`/help` - Show this help menu',
+                                    inline: false 
+                                },
+                                
+                                // Ticket Types
+                                { 
+                                    name: '📝 Ticket Types',
+                                    value: '• **Support Tickets** - General user support\n' +
+                                           '• **Match Management** - Coordinate matches\n' +
+                                           '• **Room Management** - Manage rooms\n' +
+                                           '• **Custom Management** - Custom ticket types',
+                                    inline: false 
+                                },
+                                
+                                // Control Rooms
+                                { 
+                                    name: '🔧 Control Rooms',
+                                    value: '• **Control Room** - Main hub with buttons for all ticket types\n' +
+                                           '• **Match Control** - Create match-specific tickets\n' +
+                                           '• **Room Control** - Create room management tickets\n' +
+                                           '• **Support Control** - Create support tickets\n' +
+                                           '• **Custom Control** - Create custom ticket types',
+                                    inline: false 
+                                },
+                                
+                                // Organization
+                                { 
+                                    name: '📁 Organization',
+                                    value: '• Each ticket type has its own category\n' +
+                                           '• Closed tickets move to type-specific closed categories\n' +
+                                           '• Transcripts saved to type-specific logs channels',
+                                    inline: false 
+                                }
+                            );
+                        break;
+                }
+                
+                // Add back button
+                const backButton = new ButtonBuilder()
+                    .setCustomId('help_back')
+                    .setLabel('Back to Main Menu')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji('↩️');
+                    
+                const row = new ActionRowBuilder().addComponents(backButton);
+                
+                await interaction.update({
+                    embeds: [helpEmbed],
+                    components: [row]
+                });
+                return;
+            }
+            
             if (customId.startsWith('select_channel_')) {
                 try {
                     // Extract ticket ID from the custom ID
@@ -1159,6 +1783,18 @@ client.on(Events.InteractionCreate, async interaction => {
                         return;
                     }
                     
+                    // Get the ticket to determine the ticket type
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.update({
+                            content: 'Ticket not found or has been deleted.',
+                            components: []
+                        });
+                        return;
+                    }
+                    
+                    const ticketType = ticket.type;
+                    
                     // Create a confirmation button
                     const confirmButton = new ButtonBuilder()
                         .setCustomId(`confirm_transcript_${ticketId}_${channelId}`)
@@ -1174,7 +1810,9 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     // Update the message with confirmation buttons
                     await interaction.update({
-                        content: `Send transcript to #${channel.name}?`,
+                        content: ticketType === 'support' ?
+                            `Send ticket transcript to #${channel.name}?` :
+                            `Send ${ticketType} transcript to #${channel.name}?`,
                         components: [row]
                     });
                 } catch (error) {
