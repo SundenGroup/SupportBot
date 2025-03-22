@@ -36,8 +36,25 @@ const commands = [
     ]
   },
   {
+    name: "addrole",
+    description: "Add a role to the current ticket",
+    options: [
+      {
+        type: 8, // ROLE
+        name: "role",
+        description: "Role to add to the ticket",
+        required: true
+      }
+    ]
+  },
+  {
     name: "help",
     description: "Shows information about all bot commands and features"
+  },
+  {
+    name: "onboarding",
+    description: "Start the onboarding process to learn how to set up and use the ticket system",
+    default_member_permissions: "32" // MANAGE_GUILD permission
   },
   {
     name: "setup-support",

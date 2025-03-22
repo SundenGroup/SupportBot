@@ -227,6 +227,158 @@ client.on(Events.InteractionCreate, async interaction => {
                 });
                 return;
             }
+            else if (customId === 'onboarding_setup') {
+                // Create the setup embed
+                const setupEmbed = new EmbedBuilder()
+                    .setTitle('🔧 Initial Setup')
+                    .setDescription('Follow these steps to set up the Support Bot for your server:')
+                    .setColor('#5865F2')
+                    .addFields(
+                        {
+                            name: '1️⃣ Create a Control Room',
+                            value: 'The bot automatically creates a control room called `control-room` when it joins your server. This is where users can create different types of tickets.'
+                        },
+                        {
+                            name: '2️⃣ Set Up Support Channels',
+                            value: 'Use the `/setup-support` command to create dedicated support ticket channels in specific categories for different needs.'
+                        },
+                        {
+                            name: '3️⃣ Configure Permissions',
+                            value: 'Make sure appropriate roles have access to manage tickets. Staff need `Manage Channels` permission to close tickets and view transcripts.'
+                        },
+                        {
+                            name: '4️⃣ Test Your Setup',
+                            value: 'Create a test ticket to ensure everything is working correctly. Use the buttons in the control room to open a ticket and test the commands.'
+                        }
+                    )
+                    .setFooter({ text: 'Page 2/4 • Setup Guide' })
+                    .setTimestamp();
+
+                // Update the message with the setup embed
+                await interaction.update({
+                    embeds: [setupEmbed],
+                    components: [interaction.message.components[0]] // Keep the same navigation buttons
+                });
+            }
+            else if (customId === 'onboarding_tickets') {
+                // Create the ticket types embed
+                const ticketTypesEmbed = new EmbedBuilder()
+                    .setTitle('📝 Ticket Types')
+                    .setDescription('Support Bot offers multiple ticket types to organize different needs:')
+                    .setColor('#5865F2')
+                    .addFields(
+                        {
+                            name: '🎫 Support Tickets',
+                            value: 'For general help, questions, and support issues. Created via the Support Control Room.'
+                        },
+                        {
+                            name: '🎮 Match Tickets',
+                            value: 'For scheduling and coordinating matches or events. Created from the Match Control Room.'
+                        },
+                        {
+                            name: '🚪 Room Tickets',
+                            value: 'For managing various rooms or spaces within your server. Created from the Room Control Room.'
+                        },
+                        {
+                            name: '⚙️ Custom Tickets',
+                            value: 'Create custom ticket types for specialized needs unique to your server. Each type gets its own category and controls.'
+                        },
+                        {
+                            name: '📋 Organization',
+                            value: 'Each ticket type is automatically organized into dedicated categories. Closed tickets move to type-specific closed categories.'
+                        }
+                    )
+                    .setFooter({ text: 'Page 3/4 • Setup Guide' })
+                    .setTimestamp();
+
+                // Update the message with the ticket types embed
+                await interaction.update({
+                    embeds: [ticketTypesEmbed],
+                    components: [interaction.message.components[0]] // Keep the same navigation buttons
+                });
+            }
+            else if (customId === 'onboarding_commands') {
+                // Create the commands embed
+                const commandsEmbed = new EmbedBuilder()
+                    .setTitle('⌨️ Commands')
+                    .setDescription('Here are the key commands available in Support Bot:')
+                    .setColor('#5865F2')
+                    .addFields(
+                        {
+                            name: '/close',
+                            value: 'Close a ticket and move it to the appropriate closed category'
+                        },
+                        {
+                            name: '/rename [name]',
+                            value: 'Rename the current ticket with a new name'
+                        },
+                        {
+                            name: '/reopen',
+                            value: 'Reopen a previously closed ticket'
+                        },
+                        {
+                            name: '/add [user]',
+                            value: 'Add a user to the current ticket'
+                        },
+                        {
+                            name: '/addrole [role]',
+                            value: 'Add a role to the current ticket, giving all role members access'
+                        },
+                        {
+                            name: '/setup-support',
+                            value: 'Creates a dedicated support ticket channel (admin only)'
+                        },
+                        {
+                            name: '/help',
+                            value: 'Shows help information about bot commands and features'
+                        },
+                        {
+                            name: '/onboarding',
+                            value: 'Start the onboarding process for new server administrators'
+                        }
+                    )
+                    .setFooter({ text: 'Page 4/4 • Setup Guide' })
+                    .setTimestamp();
+
+                // Update the message with the commands embed
+                await interaction.update({
+                    embeds: [commandsEmbed],
+                    components: [interaction.message.components[0]] // Keep the same navigation buttons
+                });
+            }
+            else if (customId === 'onboarding_help') {
+                // Create the help embed
+                const helpEmbed = new EmbedBuilder()
+                    .setTitle('❓ Get Help')
+                    .setDescription('Need more help with Support Bot? Here are some resources:')
+                    .setColor('#5865F2')
+                    .addFields(
+                        {
+                            name: '📚 In-Bot Help',
+                            value: 'Use the `/help` command to access detailed information about all bot features.'
+                        },
+                        {
+                            name: '🔍 Common Issues',
+                            value: '• **Permissions**: Ensure the bot has `Manage Channels` and `Manage Messages` permissions\n• **Categories**: If ticket categories aren\'t created automatically, check server permission settings\n• **Transcripts**: Make sure log channels exist for transcripts to be saved'
+                        },
+                        {
+                            name: '🚀 Quick Tips',
+                            value: '• Keep ticket categories organized\n• Use clear naming conventions for tickets\n• Train staff on how to use ticket commands\n• Regularly check transcript logs\n• Test the system before full deployment'
+                        },
+                        {
+                            name: '📝 Documentation',
+                            value: 'For full documentation and additional setup guides, use the `/help` command.'
+                        }
+                    )
+                    .setFooter({ text: 'Support Bot • Setup Guide' })
+                    .setTimestamp();
+
+                // Update the message with the help embed
+                await interaction.update({
+                    embeds: [helpEmbed],
+                    components: [interaction.message.components[0]] // Keep the same navigation buttons
+                });
+            }
             
             if (customId.startsWith('create_')) {
                 const parts = customId.split('_');
@@ -292,6 +444,11 @@ client.on(Events.InteractionCreate, async interaction => {
                                     .setLabel('Add User')
                                     .setStyle(ButtonStyle.Success)
                                     .setEmoji('👤'),
+                                new ButtonBuilder()
+                                    .setCustomId(`add_role_${ticketId}`)
+                                    .setLabel('Add Role')
+                                    .setStyle(ButtonStyle.Success)
+                                    .setEmoji('👥'),
                                 new ButtonBuilder()
                                     .setCustomId(`close_ticket_${ticketId}`)
                                     .setLabel(type === 'support' ? 
@@ -792,6 +949,57 @@ client.on(Events.InteractionCreate, async interaction => {
                     console.error('Error showing add user modal:', error);
                     await interaction.reply({
                         content: 'Failed to show the add user modal. Please try again later.',
+                        ephemeral: true
+                    });
+                }
+            }
+            else if (customId.startsWith('add_role_')) {
+                try {
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[2];
+                    
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.reply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Check if user has permission (creator or admin)
+                    const isCreator = interaction.user.id === ticket.creatorId;
+                    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    
+                    if (!isCreator && !isAdmin) {
+                        await interaction.reply({
+                            content: 'You do not have permission to add roles to this ticket.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Show a modal to get the role name
+                    const modal = new ModalBuilder()
+                        .setCustomId(`add_role_modal_${ticketId}`)
+                        .setTitle('Add Role to Ticket');
+                    
+                    const roleInput = new TextInputBuilder()
+                        .setCustomId('role_input')
+                        .setLabel('Enter Role Name')
+                        .setStyle(TextInputStyle.Short)
+                        .setPlaceholder('Role name (e.g., Staff, Moderator, etc.)')
+                        .setRequired(true);
+                    
+                    const firstActionRow = new ActionRowBuilder().addComponents(roleInput);
+                    modal.addComponents(firstActionRow);
+                    
+                    await interaction.showModal(modal);
+                } catch (error) {
+                    console.error('Error showing add role modal:', error);
+                    await interaction.reply({
+                        content: 'Failed to show the add role modal. Please try again later.',
                         ephemeral: true
                     });
                 }
@@ -1603,7 +1811,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     }
                     
                     // Add the user to the channel
-                    await channel.permissionOverwrites.create(user.id, {
+                    await channel.permissionOverwrites.edit(user.id, {
                         ViewChannel: true,
                         SendMessages: true,
                         ReadMessageHistory: true
@@ -1630,6 +1838,85 @@ client.on(Events.InteractionCreate, async interaction => {
                     });
                 }
             }
+            else if (customId.startsWith('add_role_modal_')) {
+                // Handle adding a role to a ticket
+                const ticketId = customId.split('_')[3];
+                
+                await interaction.deferReply({ ephemeral: true });
+                
+                try {
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.editReply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Get the role input
+                    let roleInput = interaction.fields.getTextInputValue('role_input').trim();
+                    
+                    // Try to find the role
+                    const roles = interaction.guild.roles.cache;
+                    let role = roles.find(r => 
+                        r.name.toLowerCase() === roleInput.toLowerCase()
+                    );
+                    
+                    // If no exact match, try partial match
+                    if (!role) {
+                        role = roles.find(r => 
+                            r.name.toLowerCase().includes(roleInput.toLowerCase())
+                        );
+                    }
+                    
+                    if (!role) {
+                        await interaction.editReply({
+                            content: 'Could not find a role with that name. Please try again with a different role name.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Get the channel
+                    const channel = await interaction.guild.channels.fetch(ticket.channelId);
+                    if (!channel) {
+                        await interaction.editReply({
+                            content: 'Ticket channel no longer exists.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    try {
+                        // Use the TicketManager to add the role to the ticket
+                        await client.tickets.addRoleToTicket(
+                            ticketId,
+                            role.id,
+                            role.name,
+                            interaction.user.id
+                        );
+                        
+                        await interaction.editReply({
+                            content: `Role **${role.name}** has been added to the ticket.`,
+                            ephemeral: true
+                        });
+                    } catch (permissionError) {
+                        console.error('Permission error:', permissionError);
+                        await interaction.editReply({
+                            content: `Failed to add role permissions: ${permissionError.message}. Make sure the bot has the "Manage Roles" permission and that the role isn't higher than the bot's role.`,
+                            ephemeral: true
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error adding role to ticket:', error);
+                    await interaction.editReply({
+                        content: `Failed to add role to the ticket: ${error.message}`,
+                        ephemeral: true
+                    });
+                }
+            }
         }
         else if (interaction.isStringSelectMenu()) {
             // Handle select menu interactions
@@ -1652,6 +1939,7 @@ client.on(Events.InteractionCreate, async interaction => {
                                 { name: '`/ticket rename [name]`', value: 'Rename the current ticket', inline: false },
                                 { name: '`/ticket reopen`', value: 'Reopen a closed ticket', inline: false },
                                 { name: '`/add [user]`', value: 'Add a user to the current ticket', inline: false },
+                                { name: '`/addrole [role]`', value: 'Add a role to the current ticket', inline: false },
                                 { name: '`/help`', value: 'Show this help menu', inline: false }
                             );
                         break;
@@ -1707,7 +1995,8 @@ client.on(Events.InteractionCreate, async interaction => {
                                     value: '`/ticket close` - Close the current ticket\n' +
                                            '`/ticket rename [name]` - Rename the current ticket\n' +
                                            '`/ticket reopen` - Reopen a closed ticket\n' +
-                                           '`/add [user]` - Add a user to the current ticket',
+                                           '`/add [user]` - Add a user to the current ticket\n' +
+                                           '`/addrole [role]` - Add a role to the current ticket',
                                     inline: false 
                                 },
                                 { 

@@ -551,7 +551,7 @@ class TicketManager {
                 throw new Error('User not found');
             }
 
-            // Add permission overwrite to the channel
+            // Add permission overwrite to the channel using edit
             await channel.permissionOverwrites.edit(userId, {
                 ViewChannel: true,
                 SendMessages: true,
@@ -571,6 +571,45 @@ class TicketManager {
             return true;
         } catch (error) {
             console.error('Error adding user to ticket:', error);
+            throw error;
+        }
+    }
+
+    async addRoleToTicket(ticketId, roleId, roleName, addedBy) {
+        if (!this.initialized) await this.init();
+        
+        try {
+            console.log(`Adding role ${roleId} (${roleName}) to ticket ${ticketId}`);
+            const ticket = await this.db.getTicket(ticketId);
+            
+            if (!ticket) {
+                throw new Error('Ticket not found');
+            }
+
+            const channel = await this.client.channels.fetch(ticket.channelId);
+            if (!channel) {
+                throw new Error('Channel not found');
+            }
+
+            // Add permission overwrite to the channel using edit
+            await channel.permissionOverwrites.edit(roleId, {
+                ViewChannel: true,
+                SendMessages: true,
+                ReadMessageHistory: true
+            });
+
+            // Log the action
+            await this.db.logAction(ticketId, 'add_role', addedBy, { added_role: roleId, role_name: roleName });
+            
+            // Send notification to the channel
+            const adder = await this.client.users.fetch(addedBy);
+            await channel.send({
+                content: `${adder} added role **${roleName}** to this ticket.`
+            });
+
+            return true;
+        } catch (error) {
+            console.error('Error adding role to ticket:', error);
             throw error;
         }
     }
@@ -639,6 +678,11 @@ class TicketManager {
                         .setLabel('Add User')
                         .setStyle(ButtonStyle.Success)
                         .setEmoji('👤'),
+                    new ButtonBuilder()
+                        .setCustomId(`add_role_${ticket.id}`)
+                        .setLabel('Add Role')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('👥'),
                     new ButtonBuilder()
                         .setCustomId(`close_ticket_${ticket.id}`)
                         .setLabel(ticket.type === 'support' ? 
