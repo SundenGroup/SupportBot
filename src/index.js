@@ -147,30 +147,45 @@ client.on(Events.InteractionCreate, async interaction => {
             const customId = interaction.customId;
             
             if (customId === 'help_back') {
-                // Create the main help embed again
+                // Create the main help embed again - matching the original in help.js
                 const helpEmbed = new EmbedBuilder()
-                    .setTitle('Support Bot Help Menu')
-                    .setDescription('This is the only ticketing bot you\'ll ever need! Explore its features and set the best ticket system for your server!')
+                    .setTitle('Support Bot Help')
+                    .setDescription('This is the only ticketing bot you\'ll ever need! Use the select menu below to explore different features and commands.')
                     .setColor('#5764F2')
                     .setThumbnail('https://cdn.discordapp.com/attachments/1095706752665641012/1095706937729867847/ticket.png')
                     .setFooter({ text: 'Support Bot | Today' })
                     .setTimestamp();
 
-                // Add main menu options
+                // Add main menu options that match all select menu options
                 helpEmbed.addFields(
                     { 
-                        name: '🔧 Commands',
-                        value: 'Browse through Support Bot\'s commands list and find new utilities!',
+                        name: '🎫 Ticket Commands',
+                        value: 'Commands for managing tickets - includes `/close`, `/rename [name]`, and `/reopen` commands to manage your tickets.',
                         inline: false 
                     },
                     { 
-                        name: '❓ FAQ',
-                        value: 'Solutions for the most frequent questions our users have when implementing the bot on their server.',
+                        name: '⚙️ Admin Commands',
+                        value: 'Commands for server administrators - includes `/setup-support` for creating support channels and managing ticket categories.',
                         inline: false 
                     },
                     { 
-                        name: '🔨 Setup',
-                        value: 'The steps to follow when setting the bot for the first time on any server',
+                        name: '📝 Ticket Types',
+                        value: 'Different types of tickets available - Support, Match, Room, and Custom tickets with unique purposes and behaviors.',
+                        inline: false 
+                    },
+                    { 
+                        name: '🔧 Control Rooms',
+                        value: 'How control rooms work - dedicated channels that users can use to create different types of tickets with just a button click.',
+                        inline: false 
+                    },
+                    { 
+                        name: '📁 Organization',
+                        value: 'How tickets are organized - category-based organization system with automatic channel management for different ticket types.',
+                        inline: false 
+                    },
+                    { 
+                        name: '📚 All Information',
+                        value: 'View all information at once - get a comprehensive overview of all bot features and commands in a single view.',
                         inline: false 
                     }
                 );
@@ -199,16 +214,16 @@ client.on(Events.InteractionCreate, async interaction => {
                             emoji: '📝'
                         },
                         {
-                            label: 'Organization',
-                            description: 'How tickets are organized',
-                            value: 'organization',
-                            emoji: '📁'
-                        },
-                        {
                             label: 'Control Rooms',
                             description: 'How control rooms work',
                             value: 'control_rooms',
                             emoji: '🔧'
+                        },
+                        {
+                            label: 'Organization',
+                            description: 'How tickets are organized',
+                            value: 'organization',
+                            emoji: '📁'
                         },
                         {
                             label: 'All Information',
