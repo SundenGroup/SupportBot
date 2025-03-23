@@ -124,7 +124,59 @@ class TicketManager {
                 });
             }
 
-            // Create the control channel
+            // Find the "Clutch Support Admin" role
+            const adminRole = guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+            
+            // Set up permission overwrites, restricting control rooms to admin role if it exists
+            const permissionOverwrites = [];
+            
+            if (name === 'control') {
+                // This is a control room, so restrict access to admin role
+                permissionOverwrites.push({
+                    id: guild.id,
+                    deny: [PermissionFlagsBits.ViewChannel] // Hide from everyone by default
+                });
+                
+                // Bot needs permissions
+                permissionOverwrites.push({
+                    id: this.client.user.id,
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ManageMessages
+                    ]
+                });
+                
+                // If admin role exists, add permission for that role
+                if (adminRole) {
+                    permissionOverwrites.push({
+                        id: adminRole.id,
+                        allow: [PermissionFlagsBits.ViewChannel],
+                        deny: [PermissionFlagsBits.SendMessages]
+                    });
+                    console.log(`Found "Clutch Support Admin" role, granting access to ${type}-control`);
+                } else {
+                    console.log(`"Clutch Support Admin" role not found, ${type}-control will only be visible to the bot`);
+                }
+            } else {
+                // This is a regular ticket, use standard permissions
+                permissionOverwrites.push({
+                    id: guild.id,
+                    allow: [PermissionFlagsBits.ViewChannel],
+                    deny: [PermissionFlagsBits.SendMessages]
+                });
+                
+                permissionOverwrites.push({
+                    id: this.client.user.id,
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ManageMessages
+                    ]
+                });
+            }
+
+            // Create the channel
             const channel = await guild.channels.create({
                 name: channelName,
                 type: ChannelType.GuildText,
@@ -132,21 +184,7 @@ class TicketManager {
                 topic: description || (type === 'support' ? 
                     `Create a ${type} ticket here` : 
                     `Create a ${type} room here`),
-                permissionOverwrites: [
-                    {
-                        id: guild.id,
-                        allow: [PermissionFlagsBits.ViewChannel],
-                        deny: [PermissionFlagsBits.SendMessages]
-                    },
-                    {
-                        id: this.client.user.id,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel,
-                            PermissionFlagsBits.SendMessages,
-                            PermissionFlagsBits.ManageMessages
-                        ]
-                    }
-                ]
+                permissionOverwrites: permissionOverwrites
             });
 
             const ticketData = {
@@ -174,9 +212,7 @@ class TicketManager {
                         .setCustomId(`create_${type}_ticket`)
                         .setLabel(type === 'support' ? 
                             `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Ticket` : 
-                            type === 'room' ?
-                                `Open ${type.charAt(0).toUpperCase() + type.slice(1)}` :
-                                `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Room`)
+                            `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Room`)
                         .setStyle(ButtonStyle.Primary)
                         .setEmoji('🎫')
                 );
@@ -325,29 +361,69 @@ class TicketManager {
 
         if (!controlChannel) {
             console.log('Creating new control room channel');
+            
+            // Find the "Clutch Support Admin" role
+            const adminRole = guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+            
+            // Set up permission overwrites, restricting access to admin role if it exists
+            const permissionOverwrites = [
+                {
+                    id: guild.id,
+                    deny: [PermissionFlagsBits.ViewChannel] // Hide from everyone by default
+                },
+                {
+                    id: this.client.user.id,
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ManageMessages
+                    ]
+                }
+            ];
+            
+            // If admin role exists, add permission for that role
+            if (adminRole) {
+                permissionOverwrites.push({
+                    id: adminRole.id,
+                    allow: [PermissionFlagsBits.ViewChannel],
+                    deny: [PermissionFlagsBits.SendMessages]
+                });
+                console.log(`Found "Clutch Support Admin" role, granting access to control room`);
+            } else {
+                console.log(`"Clutch Support Admin" role not found, control room will only be visible to the bot`);
+            }
+
             controlChannel = await guild.channels.create({
                 name: this.CONTROL_CHANNEL_NAME,
                 type: ChannelType.GuildText,
                 topic: 'Create and manage tickets, rooms, and matches',
-                permissionOverwrites: [
-                    {
-                        id: guild.id,
-                        allow: [PermissionFlagsBits.ViewChannel],
-                        deny: [PermissionFlagsBits.SendMessages]
-                    },
-                    {
-                        id: this.client.user.id,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel,
-                            PermissionFlagsBits.SendMessages,
-                            PermissionFlagsBits.ManageMessages
-                        ]
-                    }
-                ]
+                permissionOverwrites: permissionOverwrites
             });
 
             // Send initial control room message with buttons
             await this.sendControlRoomMessage(controlChannel);
+        } else {
+            // Update permissions for existing control room
+            console.log('Updating permissions for existing control room');
+            
+            // Find the "Clutch Support Admin" role
+            const adminRole = guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+            
+            // Update permissions to restrict to admin role
+            await controlChannel.permissionOverwrites.edit(guild.id, {
+                ViewChannel: false // Hide from everyone
+            });
+            
+            // If admin role exists, grant permission
+            if (adminRole) {
+                await controlChannel.permissionOverwrites.edit(adminRole.id, {
+                    ViewChannel: true,
+                    SendMessages: false
+                });
+                console.log(`Found "Clutch Support Admin" role, updated control room permissions`);
+            } else {
+                console.log(`"Clutch Support Admin" role not found, control room will only be visible to the bot`);
+            }
         }
 
         return controlChannel;
