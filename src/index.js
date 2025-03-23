@@ -170,7 +170,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     },
                     { 
                         name: '📝 Ticket Types',
-                        value: 'Different types of tickets available - Support, Match, Room, and Custom tickets with unique purposes and behaviors.',
+                        value: 'Different types of tickets available - Support, Match, and Custom tickets with unique purposes and behaviors.',
                         inline: false 
                     },
                     { 
@@ -634,9 +634,6 @@ client.on(Events.InteractionCreate, async interaction => {
                         case 'match':
                             logsCategoryName = 'Match Logs';
                             break;
-                        case 'room':
-                            logsCategoryName = 'Room Logs';
-                            break; 
                         case 'support':
                             logsCategoryName = 'Support Logs';
                             break;
@@ -709,9 +706,6 @@ client.on(Events.InteractionCreate, async interaction => {
                                 case 'match':
                                     logsCategoryName = 'Match Logs';
                                     break;
-                                case 'room':
-                                    logsCategoryName = 'Room Logs';
-                                    break; 
                                 case 'support':
                                     logsCategoryName = 'Support Logs';
                                     break;
@@ -1220,9 +1214,6 @@ client.on(Events.InteractionCreate, async interaction => {
                                 case 'match':
                                     logsCategoryName = 'Match Logs';
                                     break;
-                                case 'room':
-                                    logsCategoryName = 'Room Logs';
-                                    break; 
                                 case 'support':
                                     logsCategoryName = 'Support Logs';
                                     break;
@@ -1570,9 +1561,6 @@ client.on(Events.InteractionCreate, async interaction => {
                                 case 'match':
                                     logsCategoryName = 'Match Logs';
                                     break;
-                                case 'room':
-                                    logsCategoryName = 'Room Logs';
-                                    break; 
                                 case 'support':
                                     logsCategoryName = 'Support Logs';
                                     break;
@@ -1973,7 +1961,6 @@ client.on(Events.InteractionCreate, async interaction => {
                             .addFields(
                                 { name: 'Support Tickets', value: 'For general user support and assistance', inline: false },
                                 { name: 'Match Management', value: 'For coordinating and organizing matches', inline: false },
-                                { name: 'Room Management', value: 'For managing rooms and channels', inline: false },
                                 { name: 'Custom Management', value: 'Create your own custom ticket types for specific needs', inline: false }
                             );
                         break;
@@ -1994,7 +1981,6 @@ client.on(Events.InteractionCreate, async interaction => {
                             .addFields(
                                 { name: 'Main Control Room', value: 'Central hub with buttons for creating all types of tickets', inline: false },
                                 { name: 'Match Control', value: 'Create match-specific tickets with the click of a button', inline: false },
-                                { name: 'Room Control', value: 'Create room management tickets easily', inline: false },
                                 { name: 'Support Control', value: 'Create support tickets for user assistance', inline: false },
                                 { name: 'Custom Control', value: 'Create custom ticket types for specific needs', inline: false }
                             );
@@ -2026,7 +2012,6 @@ client.on(Events.InteractionCreate, async interaction => {
                                     name: '📝 Ticket Types',
                                     value: '• **Support Tickets** - General user support\n' +
                                            '• **Match Management** - Coordinate matches\n' +
-                                           '• **Room Management** - Manage rooms\n' +
                                            '• **Custom Management** - Custom ticket types',
                                     inline: false 
                                 },
@@ -2036,7 +2021,6 @@ client.on(Events.InteractionCreate, async interaction => {
                                     name: '🔧 Control Rooms',
                                     value: '• **Control Room** - Main hub with buttons for all ticket types\n' +
                                            '• **Match Control** - Create match-specific tickets\n' +
-                                           '• **Room Control** - Create room management tickets\n' +
                                            '• **Support Control** - Create support tickets\n' +
                                            '• **Custom Control** - Create custom ticket types',
                                     inline: false 

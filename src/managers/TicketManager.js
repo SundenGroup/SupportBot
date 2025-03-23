@@ -105,9 +105,6 @@ class TicketManager {
                 case 'match':
                     categoryName = 'Match Management';
                     break;
-                case 'room':
-                    categoryName = 'Room Management';
-                    break;
                 case 'support':
                     categoryName = 'Support Tickets';
                     break;
@@ -365,11 +362,6 @@ class TicketManager {
                     .setStyle(ButtonStyle.Primary)
                     .setEmoji('🎮'),
                 new ButtonBuilder()
-                    .setCustomId('create_room')
-                    .setLabel('Create Room Channel')
-                    .setStyle(ButtonStyle.Success)
-                    .setEmoji('🚪'),
-                new ButtonBuilder()
                     .setCustomId('create_support')
                     .setLabel('Create Support Ticket')
                     .setStyle(ButtonStyle.Secondary)
@@ -391,7 +383,6 @@ class TicketManager {
             .setColor('#5865F2')
             .addFields(
                 { name: '🎮 Match Management', value: 'Create a match coordination channel' },
-                { name: '🚪 Room Management', value: 'Create a room management channel' },
                 { name: '❓ Support Ticket', value: 'Create a support ticket' },
                 { name: '⚙️ Custom Management', value: 'Create a custom control room with your own type' }
             );
@@ -456,9 +447,6 @@ class TicketManager {
             switch (ticketType) {
                 case 'match':
                     categoryName = 'Match Logs';
-                    break;
-                case 'room':
-                    categoryName = 'Room Logs';
                     break;
                 case 'support':
                     categoryName = 'Support Logs';
@@ -639,9 +627,6 @@ class TicketManager {
             switch (ticket.type) {
                 case 'match':
                     categoryName = 'Match Management';
-                    break;
-                case 'room':
-                    categoryName = 'Room Management';
                     break;
                 case 'support':
                     categoryName = 'Support Tickets';

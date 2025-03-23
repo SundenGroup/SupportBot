@@ -134,9 +134,6 @@ module.exports = {
                         case 'match':
                             logsCategoryName = 'Match Logs';
                             break;
-                        case 'room':
-                            logsCategoryName = 'Room Logs';
-                            break; 
                         case 'support':
                             logsCategoryName = 'Support Logs';
                             break;

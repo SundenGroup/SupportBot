@@ -29,7 +29,7 @@ module.exports = {
             },
             { 
                 name: '📝 Ticket Types',
-                value: 'Different types of tickets available - Support, Match, Room, and Custom tickets with unique purposes and behaviors.',
+                value: 'Different types of tickets available - Support, Match, and Custom tickets with unique purposes and behaviors.',
                 inline: false 
             },
             { 
