@@ -54,12 +54,16 @@ class TicketManager {
             
             for (const ticket of tickets) {
                 try {
-                    const channel = await this.client.channels.fetch(ticket.channelId);
+                    const channel = await this.client.channels.fetch(ticket.channelId).catch(err => {
+                        console.error(`Error fetching channel for ticket ${ticket.id}:`, err);
+                        return null;
+                    });
+                    
                     if (channel) {
                         console.log(`Loading active ticket: ${ticket.id} (${ticket.name})`);
                         this.activeTickets.set(ticket.id, ticket);
                     } else {
-                        console.log(`Channel for ticket ${ticket.id} no longer exists, marking as closed`);
+                        console.log(`Channel for ticket ${ticket.id} not found or no access, marking as closed`);
                         await this.db.updateTicket(ticket.id, { 
                             status: 'closed',
                             closed_at: Date.now(),
@@ -68,7 +72,11 @@ class TicketManager {
                     }
                 } catch (error) {
                     console.error(`Error loading ticket ${ticket.id}:`, error);
-                    if (error.code === 10003) {
+                    
+                    // If the error is Missing Access or the channel doesn't exist,
+                    // mark the ticket as closed
+                    if (error.code === 10003 || error.code === 50001) {
+                        console.log(`Channel for ticket ${ticket.id} is inaccessible (code ${error.code}), marking as closed`);
                         await this.db.updateTicket(ticket.id, { 
                             status: 'closed',
                             closed_at: Date.now(),
@@ -154,7 +162,7 @@ class TicketManager {
                         allow: [PermissionFlagsBits.ViewChannel],
                         deny: [PermissionFlagsBits.SendMessages]
                     });
-                    console.log(`Found "Clutch Support Admin" role, granting access to ${type}-control`);
+                    console.log(`Granting ${type}-control access to "Clutch Support Admin" role`);
                 } else {
                     console.log(`"Clutch Support Admin" role not found, ${type}-control will only be visible to the bot`);
                 }
@@ -211,7 +219,7 @@ class TicketManager {
                     new ButtonBuilder()
                         .setCustomId(`create_${type}_ticket`)
                         .setLabel(type === 'support' ? 
-                            `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Ticket` : 
+                            `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Ticket Channel` : 
                             `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Room`)
                         .setStyle(ButtonStyle.Primary)
                         .setEmoji('🎫')
@@ -221,11 +229,11 @@ class TicketManager {
             const embed = new EmbedBuilder()
                 .setTitle(`${type.charAt(0).toUpperCase() + type.slice(1)} Control Room`)
                 .setDescription(description || (type === 'support' ? 
-                    `Need a ${type}? Click the button below to open a ${type} ticket. Our team will assist you as soon as possible.` :
-                    `Need a ${type}? Click the button below to open a ${type} room. Our team will assist you as soon as possible.`))
+                    `Need a ${type} ticket channel? Click the button below to open a ${type} ticket channel. Our team will assist you as soon as possible.` :
+                    `Need a ${type} room? Click the button below to open a ${type} room. Our team will assist you as soon as possible.`))
                 .setColor('#5865F2')
                 .setFooter({ text: type === 'support' ? 
-                    `${type.charAt(0).toUpperCase() + type.slice(1)} Ticket System` :
+                    `${type.charAt(0).toUpperCase() + type.slice(1)} Ticket Channel System` :
                     `${type.charAt(0).toUpperCase() + type.slice(1)} Management System` })
                 .setTimestamp();
             
@@ -359,11 +367,17 @@ class TicketManager {
             channel => channel.name === this.CONTROL_CHANNEL_NAME
         );
 
+        // Find the "Clutch Support Admin" role
+        const adminRole = guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+        
+        if (adminRole) {
+            console.log(`Found "Clutch Support Admin" role with ID: ${adminRole.id}`);
+        } else {
+            console.log(`"Clutch Support Admin" role not found in guild ${guild.name}`);
+        }
+
         if (!controlChannel) {
             console.log('Creating new control room channel');
-            
-            // Find the "Clutch Support Admin" role
-            const adminRole = guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
             
             // Set up permission overwrites, restricting access to admin role if it exists
             const permissionOverwrites = [
@@ -388,9 +402,7 @@ class TicketManager {
                     allow: [PermissionFlagsBits.ViewChannel],
                     deny: [PermissionFlagsBits.SendMessages]
                 });
-                console.log(`Found "Clutch Support Admin" role, granting access to control room`);
-            } else {
-                console.log(`"Clutch Support Admin" role not found, control room will only be visible to the bot`);
+                console.log(`Granting control room access to "Clutch Support Admin" role`);
             }
 
             controlChannel = await guild.channels.create({
@@ -406,9 +418,6 @@ class TicketManager {
             // Update permissions for existing control room
             console.log('Updating permissions for existing control room');
             
-            // Find the "Clutch Support Admin" role
-            const adminRole = guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
-            
             // Update permissions to restrict to admin role
             await controlChannel.permissionOverwrites.edit(guild.id, {
                 ViewChannel: false // Hide from everyone
@@ -420,9 +429,7 @@ class TicketManager {
                     ViewChannel: true,
                     SendMessages: false
                 });
-                console.log(`Found "Clutch Support Admin" role, updated control room permissions`);
-            } else {
-                console.log(`"Clutch Support Admin" role not found, control room will only be visible to the bot`);
+                console.log(`Updated permissions for "Clutch Support Admin" role in control room`);
             }
         }
 
@@ -439,7 +446,7 @@ class TicketManager {
                     .setEmoji('🎮'),
                 new ButtonBuilder()
                     .setCustomId('create_support')
-                    .setLabel('Create Support Ticket')
+                    .setLabel('Create Support Ticket Channel')
                     .setStyle(ButtonStyle.Secondary)
                     .setEmoji('❓')
             );
@@ -459,7 +466,7 @@ class TicketManager {
             .setColor('#5865F2')
             .addFields(
                 { name: '🎮 Match Management', value: 'Create a match coordination channel' },
-                { name: '❓ Support Ticket', value: 'Create a support ticket' },
+                { name: '❓ Support Ticket Channel', value: 'Create a support ticket channel' },
                 { name: '⚙️ Custom Management', value: 'Create a custom control room with your own type' }
             );
 
