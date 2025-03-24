@@ -408,7 +408,24 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     try {
                         // Get the next sequential ticket number for this type
-                        const ticketNumber = await client.tickets.db.getNextTicketNumber(type, interaction.guild.id);
+                        let ticketNumber;
+                        
+                        // Add timeout to prevent infinite waiting
+                        const ticketNumberPromise = client.tickets.db.getNextTicketNumber(type, interaction.guild.id);
+                        const timeoutPromise = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Ticket counter generation timed out')), 5000)
+                        );
+                        
+                        try {
+                            // Race between the normal counter generation and the timeout
+                            ticketNumber = await Promise.race([ticketNumberPromise, timeoutPromise]);
+                        } catch (counterError) {
+                            console.error('Error getting ticket counter:', counterError);
+                            // If it times out or errors, use a fallback random number
+                            ticketNumber = Math.floor(Math.random() * 10000) + 1;
+                            console.log(`Using fallback counter: ${ticketNumber}`);
+                        }
+                        
                         // Format the ticket number with leading zeros (0001, 0002, etc.)
                         const name = ticketNumber.toString().padStart(4, '0');
                         
@@ -1702,19 +1719,34 @@ client.on(Events.InteractionCreate, async interaction => {
                     // Generate a default name for the channel
                     const defaultName = 'control';
                     
-                    // Create a control room with the custom type
-                    const ticket = await client.tickets.createTicket({
+                    // Create a control room with the custom type, with timeout
+                    const createTicketPromise = client.tickets.createTicket({
                         guild: interaction.guild,
                         creator: interaction.user,
                         type: customType,
                         name: defaultName,
                         description: `${customType.charAt(0).toUpperCase() + customType.slice(1)} management channel`
                     });
-
-                    await interaction.editReply({
-                        content: `${customType.charAt(0).toUpperCase() + customType.slice(1)} control room created: <#${ticket.channelId}>`,
-                        ephemeral: true
-                    });
+                    
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Ticket creation timed out')), 10000)
+                    );
+                    
+                    try {
+                        // Race between ticket creation and timeout
+                        const ticket = await Promise.race([createTicketPromise, timeoutPromise]);
+                        
+                        await interaction.editReply({
+                            content: `${customType.charAt(0).toUpperCase() + customType.slice(1)} control room created: <#${ticket.channelId}>`,
+                            ephemeral: true
+                        });
+                    } catch (timeoutError) {
+                        console.error('Ticket creation error or timeout:', timeoutError);
+                        await interaction.editReply({
+                            content: `Failed to create the ${customType} management channel: ${timeoutError.message}. The process might be stuck. Please try again later with a different name.`,
+                            ephemeral: true
+                        });
+                    }
                 } catch (error) {
                     console.error('Error creating custom type channel:', error);
                     await interaction.editReply({
