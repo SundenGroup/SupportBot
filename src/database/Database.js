@@ -439,54 +439,93 @@ class Database {
         return new Promise((resolve, reject) => {
             console.log(`Getting next ticket number for type: ${type}, guild: ${guildId}`);
             
-            // First, check if there's an existing counter for this type and guild
-            this.db.get(
-                'SELECT last_number FROM ticket_counters WHERE type = ? AND guild_id = ?',
-                [type, guildId],
-                (err, row) => {
-                    if (err) {
-                        console.error('Error checking ticket counter:', err);
-                        reject(err);
-                        return;
-                    }
-                    
-                    if (row) {
-                        // Counter exists, increment it
-                        const nextNumber = row.last_number + 1;
+            // Lock the database for an atomic operation
+            this.db.serialize(() => {
+                this.db.run('BEGIN TRANSACTION');
+                
+                // First, check if there's an existing counter for this type and guild
+                this.db.get(
+                    'SELECT last_number FROM ticket_counters WHERE type = ? AND guild_id = ?',
+                    [type, guildId],
+                    (err, row) => {
+                        if (err) {
+                            console.error('Error checking ticket counter:', err);
+                            this.db.run('ROLLBACK');
+                            reject(err);
+                            return;
+                        }
                         
-                        this.db.run(
-                            'UPDATE ticket_counters SET last_number = ? WHERE type = ? AND guild_id = ?',
-                            [nextNumber, type, guildId],
-                            (updateErr) => {
-                                if (updateErr) {
-                                    console.error('Error updating ticket counter:', updateErr);
-                                    reject(updateErr);
-                                    return;
+                        if (row) {
+                            // Counter exists, increment it
+                            const nextNumber = row.last_number + 1;
+                            
+                            this.db.run(
+                                'UPDATE ticket_counters SET last_number = ? WHERE type = ? AND guild_id = ?',
+                                [nextNumber, type, guildId],
+                                (updateErr) => {
+                                    if (updateErr) {
+                                        console.error('Error updating ticket counter:', updateErr);
+                                        this.db.run('ROLLBACK');
+                                        reject(updateErr);
+                                        return;
+                                    }
+                                    
+                                    this.db.run('COMMIT', (commitErr) => {
+                                        if (commitErr) {
+                                            console.error('Error committing transaction:', commitErr);
+                                            this.db.run('ROLLBACK');
+                                            reject(commitErr);
+                                            return;
+                                        }
+                                        
+                                        console.log(`Incremented ${type} ticket counter to ${nextNumber} for guild ${guildId}`);
+                                        resolve(nextNumber);
+                                    });
                                 }
-                                
-                                console.log(`Incremented ${type} ticket counter to ${nextNumber}`);
-                                resolve(nextNumber);
-                            }
-                        );
-                    } else {
-                        // No counter exists yet, create one starting at 1
-                        this.db.run(
-                            'INSERT INTO ticket_counters (type, guild_id, last_number) VALUES (?, ?, 1)',
-                            [type, guildId],
-                            (insertErr) => {
-                                if (insertErr) {
-                                    console.error('Error creating ticket counter:', insertErr);
-                                    reject(insertErr);
-                                    return;
+                            );
+                        } else {
+                            // No counter exists yet, create one starting at 1
+                            this.db.run(
+                                'INSERT INTO ticket_counters (type, guild_id, last_number) VALUES (?, ?, 1)',
+                                [type, guildId],
+                                (insertErr) => {
+                                    if (insertErr) {
+                                        console.error('Error creating ticket counter:', insertErr);
+                                        this.db.run('ROLLBACK');
+                                        
+                                        // Check if the error is a constraint violation (race condition)
+                                        if (insertErr.message.includes('UNIQUE constraint failed')) {
+                                            console.log('Race condition detected, retrying getNextTicketNumber');
+                                            this.db.run('ROLLBACK', () => {
+                                                // Try again with a recursive call after rolling back
+                                                this.getNextTicketNumber(type, guildId)
+                                                    .then(resolve)
+                                                    .catch(reject);
+                                            });
+                                            return;
+                                        }
+                                        
+                                        reject(insertErr);
+                                        return;
+                                    }
+                                    
+                                    this.db.run('COMMIT', (commitErr) => {
+                                        if (commitErr) {
+                                            console.error('Error committing transaction:', commitErr);
+                                            this.db.run('ROLLBACK');
+                                            reject(commitErr);
+                                            return;
+                                        }
+                                        
+                                        console.log(`Created new ${type} ticket counter starting at 1 for guild ${guildId}`);
+                                        resolve(1);
+                                    });
                                 }
-                                
-                                console.log(`Created new ${type} ticket counter starting at 1`);
-                                resolve(1);
-                            }
-                        );
+                            );
+                        }
                     }
-                }
-            );
+                );
+            });
         });
     }
 }
