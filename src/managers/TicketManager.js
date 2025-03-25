@@ -569,6 +569,11 @@ class TicketManager {
     }
 
     async sendControlRoomMessage(channel) {
+        // Send welcome message first
+        await channel.send({
+            content: "Welcome to Clutch Support! The simple ticketing and operation tool you need! This is the main control room, your Central hub, with buttons for creating all types of tickets.\n\nPlease use /help to learn more about Clutch Support's functions and commands. Good luck, have fun!"
+        });
+
         const buttons = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()

@@ -340,8 +340,8 @@ client.on(Events.InteractionCreate, async interaction => {
                             value: 'Add a role to the current ticket, giving all role members access'
                         },
                         {
-                            name: '/setup-support',
-                            value: 'Creates a dedicated support ticket channel (admin only)'
+                            name: '/create-control',
+                            value: 'Create a new main control room for managing tickets (admin only)'
                         },
                         {
                             name: '/help',
@@ -2017,7 +2017,8 @@ client.on(Events.InteractionCreate, async interaction => {
                             .setTitle('Admin Commands')
                             .setDescription('Commands for server administrators')
                             .addFields(
-                                { name: '`/setup-support`', value: 'Creates a dedicated support ticket channel with customizable title and description', inline: false }
+                                { name: '`/create-control`', value: 'Create a main control room for managing tickets', inline: false },
+                                { name: '`/help`', value: 'Show this help menu', inline: false }
                             );
                         break;
                     case 'ticket_types':
@@ -2068,7 +2069,7 @@ client.on(Events.InteractionCreate, async interaction => {
                                 },
                                 { 
                                     name: '⚙️ Admin Commands',
-                                    value: '`/setup-support` - Create a dedicated support ticket channel\n' +
+                                    value: '`/create-control` - Create a main control room for managing tickets\n' +
                                            '`/help` - Show this help menu',
                                     inline: false 
                                 },
