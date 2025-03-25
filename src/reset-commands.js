@@ -57,27 +57,8 @@ const commands = [
     default_member_permissions: "32" // MANAGE_GUILD permission
   },
   {
-    name: "setup-support",
-    description: "Creates a dedicated support ticket channel",
-    default_member_permissions: "16",
-    options: [
-      {
-        type: 7, // CHANNEL
-        name: "channel",
-        description: "The channel to set up as a support ticket channel (defaults to creating a new channel)",
-        channel_types: [0]
-      },
-      {
-        type: 3, // STRING
-        name: "title",
-        description: "The title for the support embed"
-      },
-      {
-        type: 3, // STRING
-        name: "description",
-        description: "The description for the support embed"
-      }
-    ]
+    name: "create-control",
+    description: "Create a new main control room (Clutch Support Admin role required)"
   }
 ];
 

@@ -24,7 +24,7 @@ module.exports = {
             },
             { 
                 name: '⚙️ Admin Commands',
-                value: 'Commands for server administrators - includes `/setup-support` for creating support channels and managing ticket categories.',
+                value: 'Commands for server administrators - includes commands for managing ticket categories.',
                 inline: false 
             },
             { 

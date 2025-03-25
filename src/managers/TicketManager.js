@@ -30,7 +30,22 @@ class TicketManager {
             await this.loadActiveTickets();
             console.log('Active tickets loaded');
             
-            await this.setupControlRooms();
+            // Fix permissions for all active tickets
+            await this.fixTicketPermissions();
+            console.log('Ticket permissions fixed');
+            
+            const controlRoomResults = await this.setupControlRooms();
+            
+            // Log a summary of control room setups
+            const successCount = controlRoomResults.filter(r => r.success).length;
+            const failCount = controlRoomResults.length - successCount;
+            
+            if (failCount > 0) {
+                console.warn(`Control room setup completed with ${successCount} successes and ${failCount} failures`);
+            } else {
+                console.log(`Control room setup completed successfully for ${successCount} guilds`);
+            }
+            
             this.initialized = true;
             console.log('TicketManager initialization complete');
         } catch (error) {
@@ -96,10 +111,10 @@ class TicketManager {
     async createTicket(options) {
         if (!this.initialized) await this.init();
         
-        const { guild, creator, type, name, description } = options;
+        const { guild, creator, type, name, description, sourceChannelId } = options;
         
         try {
-            console.log('Creating control channel with options:', { guild: guild.id, creator: creator.id, type, name });
+            console.log('Creating ticket with options:', { guild: guild.id, creator: creator.id, type, name });
             const ticketId = Date.now().toString(36);
             
             // Use consistent naming format for control rooms vs tickets
@@ -107,7 +122,8 @@ class TicketManager {
                 ? `${type}-control` // Control room format without hyphen prefix
                 : `${type}-${name}`; // Ticket format without 'ticket' in the name
 
-            // Get category name based on ticket type
+            // Get category name based on ticket type - this is the correct category
+            // regardless of where the control room is located
             let categoryName;
             switch (type) {
                 case 'match':
@@ -123,13 +139,19 @@ class TicketManager {
                     categoryName = `${type.charAt(0).toUpperCase() + type.slice(1)} Management`;
             }
 
+            // Log what category we're trying to place this in
+            console.log(`Looking for category "${categoryName}" for ${type} ${name === 'control' ? 'control room' : 'ticket'}`);
+
             // Find or create the category
             let category = guild.channels.cache.find(c => c.name === categoryName && c.type === ChannelType.GuildCategory);
             if (!category) {
+                console.log(`Category "${categoryName}" not found, creating it`);
                 category = await guild.channels.create({
                     name: categoryName,
                     type: ChannelType.GuildCategory
                 });
+            } else {
+                console.log(`Found existing category "${categoryName}" (ID: ${category.id})`);
             }
 
             // Find the "Clutch Support Admin" role
@@ -170,8 +192,7 @@ class TicketManager {
                 // This is a regular ticket, use standard permissions
                 permissionOverwrites.push({
                     id: guild.id,
-                    allow: [PermissionFlagsBits.ViewChannel],
-                    deny: [PermissionFlagsBits.SendMessages]
+                    deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] // Hide from everyone by default
                 });
                 
                 permissionOverwrites.push({
@@ -182,6 +203,25 @@ class TicketManager {
                         PermissionFlagsBits.ManageMessages
                     ]
                 });
+                
+                // Allow creator to access their ticket
+                permissionOverwrites.push({
+                    id: creator.id,
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ReadMessageHistory
+                    ]
+                });
+                
+                // If admin role exists, add permission for that role
+                if (adminRole) {
+                    permissionOverwrites.push({
+                        id: adminRole.id,
+                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+                    });
+                    console.log(`Granting ticket access to "Clutch Support Admin" role`);
+                }
             }
 
             // Create the channel
@@ -213,35 +253,68 @@ class TicketManager {
 
             this.activeTickets.set(ticketId, ticketData);
 
-            // Create the ticket button for all control channels (including custom types)
-            const button = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`create_${type}_ticket`)
-                        .setLabel(type === 'support' ? 
-                            `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Ticket Channel` : 
-                            `Open ${type.charAt(0).toUpperCase() + type.slice(1)} Room`)
-                        .setStyle(ButtonStyle.Primary)
-                        .setEmoji('🎫')
-                );
-            
-            // Create the embed
-            const embed = new EmbedBuilder()
-                .setTitle(`${type.charAt(0).toUpperCase() + type.slice(1)} Control Room`)
-                .setDescription(description || (type === 'support' ? 
-                    `Need a ${type} ticket channel? Click the button below to open a ${type} ticket channel. Our team will assist you as soon as possible.` :
-                    `Need a ${type} room? Click the button below to open a ${type} room. Our team will assist you as soon as possible.`))
-                .setColor('#5865F2')
-                .setFooter({ text: type === 'support' ? 
-                    `${type.charAt(0).toUpperCase() + type.slice(1)} Ticket Channel System` :
-                    `${type.charAt(0).toUpperCase() + type.slice(1)} Management System` })
-                .setTimestamp();
-            
-            // Send the message with the button
-            await channel.send({
-                embeds: [embed],
-                components: [button]
-            });
+            // Only add control buttons if this is a control room
+            if (name === 'control') {
+                // Create the ticket button for control channels
+                const button = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`create_${type}_ticket`)
+                            .setLabel(type === 'support' ? 
+                                `Create ${type.charAt(0).toUpperCase() + type.slice(1)} Ticket` : 
+                                `Create ${type.charAt(0).toUpperCase() + type.slice(1)} Room`)
+                            .setStyle(ButtonStyle.Primary)
+                            .setEmoji('🎫')
+                    );
+                
+                // Create the embed
+                const embed = new EmbedBuilder()
+                    .setTitle(`${type.charAt(0).toUpperCase() + type.slice(1)} Control Room`)
+                    .setDescription(description || (type === 'support' ? 
+                        `Need a ${type} ticket? Click the button below to create a ${type} ticket. Our team will assist you as soon as possible.` :
+                        `Need a ${type} room? Click the button below to create a ${type} room. Our team will assist you as soon as possible.`))
+                    .setColor('#5865F2')
+                    .setFooter({ text: type === 'support' ? 
+                        `${type.charAt(0).toUpperCase() + type.slice(1)} Ticket System` :
+                        `${type.charAt(0).toUpperCase() + type.slice(1)} Management System` })
+                    .setTimestamp();
+                
+                // Send the message with the button
+                await channel.send({
+                    embeds: [embed],
+                    components: [button]
+                });
+            } else {
+                // If it's a regular ticket, add the admin control buttons
+                const adminButtons = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`add_user_${ticketId}`)
+                            .setLabel('Add User')
+                            .setStyle(ButtonStyle.Success)
+                            .setEmoji('👤'),
+                        new ButtonBuilder()
+                            .setCustomId(`add_role_${ticketId}`)
+                            .setLabel('Add Role')
+                            .setStyle(ButtonStyle.Success)
+                            .setEmoji('👥'),
+                        new ButtonBuilder()
+                            .setCustomId(`close_ticket_${ticketId}`)
+                            .setLabel(type === 'support' ? 
+                                'Close Ticket' : 
+                                `Close ${type.charAt(0).toUpperCase() + type.slice(1)}`)
+                            .setStyle(ButtonStyle.Danger)
+                            .setEmoji('🔒')
+                    );
+                
+                // Only send the control buttons, no welcome message
+                await channel.send({
+                    content: type === 'support' ? 
+                        'Ticket Controls:' : 
+                        `${type.charAt(0).toUpperCase() + type.slice(1)} Controls:`,
+                    components: [adminButtons]
+                });
+            }
 
             return ticketData;
         } catch (error) {
@@ -350,17 +423,42 @@ class TicketManager {
     async setupControlRooms() {
         console.log('Setting up control rooms for all guilds...');
         
+        const results = [];
         for (const [guildId, guild] of this.client.guilds.cache) {
             try {
-                await this.setupGuildControlRoom(guild);
+                const result = await this.setupGuildControlRoom(guild);
+                results.push({
+                    guildId,
+                    guildName: guild.name,
+                    ...result
+                });
+                
+                if (!result.success) {
+                    console.error(`Failed to setup control room for guild ${guild.name} (${guildId}): ${result.message}`);
+                } else {
+                    console.log(`Control room setup for guild ${guild.name} (${guildId}): ${result.status} - ${result.message}`);
+                }
             } catch (error) {
                 console.error(`Failed to setup control room for guild ${guildId}:`, error);
+                results.push({
+                    guildId,
+                    guildName: guild.name,
+                    success: false,
+                    status: 'error',
+                    message: error.message,
+                    error
+                });
             }
         }
+        
+        return results;
     }
 
     async setupGuildControlRoom(guild) {
         console.log(`Setting up control room for guild: ${guild.name}`);
+        
+        let status = 'existing';
+        let message = '';
         
         // Check if control room already exists
         let controlChannel = guild.channels.cache.find(
@@ -378,6 +476,7 @@ class TicketManager {
 
         if (!controlChannel) {
             console.log('Creating new control room channel');
+            status = 'created';
             
             // Set up permission overwrites, restricting access to admin role if it exists
             const permissionOverwrites = [
@@ -403,50 +502,88 @@ class TicketManager {
                     deny: [PermissionFlagsBits.SendMessages]
                 });
                 console.log(`Granting control room access to "Clutch Support Admin" role`);
+                message = 'New control room created with access for Clutch Support Admin role';
+            } else {
+                message = 'New control room created (note: Clutch Support Admin role not found)';
             }
 
-            controlChannel = await guild.channels.create({
-                name: this.CONTROL_CHANNEL_NAME,
-                type: ChannelType.GuildText,
-                topic: 'Create and manage tickets, rooms, and matches',
-                permissionOverwrites: permissionOverwrites
-            });
+            try {
+                controlChannel = await guild.channels.create({
+                    name: this.CONTROL_CHANNEL_NAME,
+                    type: ChannelType.GuildText,
+                    topic: 'Create and manage tickets, rooms, and matches',
+                    permissionOverwrites: permissionOverwrites
+                });
 
-            // Send initial control room message with buttons
-            await this.sendControlRoomMessage(controlChannel);
+                // Send initial control room message with buttons
+                await this.sendControlRoomMessage(controlChannel);
+            } catch (error) {
+                console.error('Error creating control room:', error);
+                return {
+                    success: false,
+                    status: 'error',
+                    message: `Failed to create control room: ${error.message}`,
+                    error
+                };
+            }
         } else {
             // Update permissions for existing control room
             console.log('Updating permissions for existing control room');
+            status = 'updated';
             
-            // Update permissions to restrict to admin role
-            await controlChannel.permissionOverwrites.edit(guild.id, {
-                ViewChannel: false // Hide from everyone
-            });
-            
-            // If admin role exists, grant permission
-            if (adminRole) {
-                await controlChannel.permissionOverwrites.edit(adminRole.id, {
-                    ViewChannel: true,
-                    SendMessages: false
+            try {
+                // Update permissions to restrict to admin role
+                await controlChannel.permissionOverwrites.edit(guild.id, {
+                    ViewChannel: false // Hide from everyone
                 });
-                console.log(`Updated permissions for "Clutch Support Admin" role in control room`);
+                
+                // If admin role exists, grant permission
+                if (adminRole) {
+                    await controlChannel.permissionOverwrites.edit(adminRole.id, {
+                        ViewChannel: true,
+                        SendMessages: false
+                    });
+                    console.log(`Updated permissions for "Clutch Support Admin" role in control room`);
+                    message = 'Existing control room updated with access for Clutch Support Admin role';
+                } else {
+                    message = 'Existing control room updated (note: Clutch Support Admin role not found)';
+                }
+            } catch (error) {
+                console.error('Error updating control room permissions:', error);
+                return {
+                    success: false,
+                    status: 'error',
+                    message: `Failed to update control room permissions: ${error.message}`,
+                    channel: controlChannel,
+                    error
+                };
             }
         }
 
-        return controlChannel;
+        return {
+            success: true,
+            status,
+            message,
+            channel: controlChannel
+        };
     }
 
     async sendControlRoomMessage(channel) {
+        // Send welcome message first
+        await channel.send({
+            content: "Welcome to Clutch Support! The simple ticketing and operation tool you need! This is the main control room, your Central hub, with buttons for creating all types of tickets.\n\nPlease use /help to learn more about Clutch Support's functions and commands. Good luck, have fun!"
+        });
+
         const buttons = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()
                     .setCustomId('create_match')
-                    .setLabel('Create Match Channel')
+                    .setLabel('Create Match Room')
                     .setStyle(ButtonStyle.Primary)
                     .setEmoji('🎮'),
                 new ButtonBuilder()
                     .setCustomId('create_support')
-                    .setLabel('Create Support Ticket Channel')
+                    .setLabel('Create Support Ticket')
                     .setStyle(ButtonStyle.Secondary)
                     .setEmoji('❓')
             );
@@ -465,8 +602,8 @@ class TicketManager {
             .setDescription('Click a button below to create a new management channel:')
             .setColor('#5865F2')
             .addFields(
-                { name: '🎮 Match Management', value: 'Create a match coordination channel' },
-                { name: '❓ Support Ticket Channel', value: 'Create a support ticket channel' },
+                { name: '🎮 Match Management', value: 'Create a match coordination room' },
+                { name: '❓ Support Tickets', value: 'Create a support ticket for assistance' },
                 { name: '⚙️ Custom Management', value: 'Create a custom control room with your own type' }
             );
 
@@ -541,6 +678,37 @@ class TicketManager {
                     categoryName = `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} Logs`;
             }
             
+            // Find the "Clutch Support Admin" role
+            const adminRole = guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+            
+            if (adminRole) {
+                console.log(`Found "Clutch Support Admin" role with ID: ${adminRole.id}`);
+            } else {
+                console.log(`"Clutch Support Admin" role not found in guild ${guild.name}`);
+            }
+            
+            // Set up permission overwrites for the category, restricting to admin role if it exists
+            const categoryPermissionOverwrites = [
+                {
+                    id: guild.id,
+                    deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+                },
+                {
+                    id: this.client.user.id,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                }
+            ];
+            
+            // If admin role exists, add permission for that role
+            if (adminRole) {
+                categoryPermissionOverwrites.push({
+                    id: adminRole.id,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                    deny: [PermissionFlagsBits.SendMessages]
+                });
+                console.log(`Granting logs category access to "Clutch Support Admin" role`);
+            }
+            
             // Find or create the specific logs category
             let logsCategory = guild.channels.cache.find(
                 c => c.name === categoryName && c.type === ChannelType.GuildCategory
@@ -550,19 +718,38 @@ class TicketManager {
                 logsCategory = await guild.channels.create({
                     name: categoryName,
                     type: ChannelType.GuildCategory,
-                    permissionOverwrites: [
-                        {
-                            id: guild.id,
-                            deny: [PermissionFlagsBits.SendMessages],
-                            allow: [PermissionFlagsBits.ViewChannel]
-                        }
-                    ]
+                    permissionOverwrites: categoryPermissionOverwrites
                 });
                 console.log(`Created new logs category: ${categoryName}`);
+            } else {
+                // Update existing category permissions
+                await logsCategory.permissionOverwrites.set(categoryPermissionOverwrites);
+                console.log(`Updated permissions for existing logs category: ${categoryName}`);
             }
             
             // Format channel name based on ticket type
             const logChannelName = `${ticketType}-logs`;
+            
+            // Setup channel permissions
+            const channelPermissionOverwrites = [
+                {
+                    id: guild.id,
+                    deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+                },
+                {
+                    id: this.client.user.id,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                }
+            ];
+            
+            // If admin role exists, add permission for that role
+            if (adminRole) {
+                channelPermissionOverwrites.push({
+                    id: adminRole.id,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                    deny: [PermissionFlagsBits.SendMessages]
+                });
+            }
             
             // Find or create the log channel
             let logChannel = guild.channels.cache.find(
@@ -577,20 +764,14 @@ class TicketManager {
                     type: ChannelType.GuildText,
                     parent: logsCategory,
                     topic: `Transcripts for ${ticketType} tickets`,
-                    permissionOverwrites: [
-                        {
-                            id: guild.id,
-                            deny: [PermissionFlagsBits.SendMessages],
-                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory]
-                        },
-                        {
-                            id: this.client.user.id,
-                            allow: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
-                        }
-                    ]
+                    permissionOverwrites: channelPermissionOverwrites
                 });
                 
                 console.log(`Created log channel: ${logChannelName} in category ${categoryName}`);
+            } else {
+                // Update existing channel permissions
+                await logChannel.permissionOverwrites.set(channelPermissionOverwrites);
+                console.log(`Updated permissions for existing log channel: ${logChannelName}`);
             }
             
             return logChannel;
@@ -616,7 +797,14 @@ class TicketManager {
                 throw new Error('Channel not found');
             }
 
-            // Get the user
+            // Get the user - first check if they are a member of the guild
+            const guild = channel.guild;
+            const member = await guild.members.fetch(userId).catch(() => null);
+            if (!member) {
+                throw new Error('User is not a member of this server');
+            }
+
+            // Fetch the user for mentioning
             const user = await this.client.users.fetch(userId);
             if (!user) {
                 throw new Error('User not found');
@@ -660,6 +848,13 @@ class TicketManager {
             const channel = await this.client.channels.fetch(ticket.channelId);
             if (!channel) {
                 throw new Error('Channel not found');
+            }
+
+            // Verify the role exists in the guild
+            const guild = channel.guild;
+            const role = await guild.roles.fetch(roleId).catch(() => null);
+            if (!role) {
+                throw new Error('Role not found in this server');
             }
 
             // Add permission overwrite to the channel using edit
@@ -733,9 +928,79 @@ class TicketManager {
             // Move the channel back to the original category
             await channel.setParent(category.id);
             
-            // Update permissions to allow sending messages again
+            // Update permissions for reopened ticket - don't make it visible to everyone
+            // First, deny access for everyone
             await channel.permissionOverwrites.edit(channel.guild.id, {
-                SendMessages: null // Remove the override
+                SendMessages: false,
+                ViewChannel: false // Keep it hidden from everyone by default
+            });
+            
+            // Then allow the creator access, but first verify they exist in the guild
+            try {
+                // Check if the creator is still in the guild
+                const creatorMember = await channel.guild.members.fetch(ticket.creatorId).catch(() => null);
+                
+                if (creatorMember) {
+                    await channel.permissionOverwrites.edit(ticket.creatorId, {
+                        ViewChannel: true,
+                        SendMessages: true,
+                        ReadMessageHistory: true
+                    });
+                    console.log(`Added permissions for ticket creator ${ticket.creatorId}`);
+                } else {
+                    console.log(`Creator ${ticket.creatorId} is not in the guild, skipping permission setup for them`);
+                }
+            } catch (fetchError) {
+                console.error(`Error fetching creator ${ticket.creatorId} for ticket ${ticketId}:`, fetchError);
+            }
+            
+            // Find the "Clutch Support Admin" role and grant access if it exists
+            const adminRole = channel.guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+            if (adminRole) {
+                await channel.permissionOverwrites.edit(adminRole.id, {
+                    ViewChannel: true,
+                    SendMessages: true,
+                    ReadMessageHistory: true
+                });
+                console.log(`Granting reopened ticket access to "Clutch Support Admin" role`);
+            }
+            
+            // Update ticket status in database
+            await this.db.updateTicket(ticket.id, {
+                status: 'open',
+                reopened_at: Date.now(),
+                reopened_by: reopenedBy.id
+            });
+            
+            // Add the ticket back to the active tickets map
+            ticket.status = 'open';
+            this.activeTickets.set(ticket.id, ticket);
+            
+            // Log the action
+            await this.db.logAction(ticket.id, 'reopen', reopenedBy.id);
+            
+            // Find and delete any closed ticket messages with reopen buttons
+            try {
+                const messages = await channel.messages.fetch({ limit: 10 });
+                const reopenMessages = messages.filter(msg => 
+                    msg.author.id === this.client.user.id && 
+                    msg.content.includes('This ticket has been closed') &&
+                    msg.components.length > 0 &&
+                    msg.components[0].components.some(c => c.customId && c.customId.startsWith('reopen_ticket_'))
+                );
+                
+                for (const [id, message] of reopenMessages) {
+                    await message.delete().catch(err => console.error('Error deleting reopen message:', err));
+                }
+            } catch (deleteErr) {
+                console.error('Error finding/deleting reopen messages:', deleteErr);
+            }
+            
+            // Send a notification in the channel
+            await channel.send({
+                content: ticket.type === 'support' ?
+                    `🔓 This ticket has been re-opened by ${reopenedBy}.` :
+                    `🔓 This ${ticket.type} has been re-opened by ${reopenedBy}.`
             });
             
             // Add admin controls with add user and close ticket buttons
@@ -768,46 +1033,143 @@ class TicketManager {
                 components: [adminButtons]
             });
             
-            // Update ticket status in database
-            await this.db.updateTicket(ticket.id, {
-                status: 'open',
-                reopened_at: Date.now(),
-                reopened_by: reopenedBy.id
-            });
-            
-            // Log the action
-            await this.db.logAction(ticket.id, 'reopen', reopenedBy.id, { action: 'reopened_ticket' });
-            
-            // Find and delete any closed ticket messages with reopen buttons
-            try {
-                const messages = await channel.messages.fetch({ limit: 10 });
-                const reopenMessages = messages.filter(msg => 
-                    msg.author.id === this.client.user.id && 
-                    msg.content.includes('This ticket has been closed') &&
-                    msg.components.length > 0 &&
-                    msg.components[0].components.some(c => c.customId && c.customId.startsWith('reopen_ticket_'))
-                );
-                
-                for (const [id, message] of reopenMessages) {
-                    await message.delete().catch(err => console.error('Error deleting reopen message:', err));
-                }
-            } catch (deleteErr) {
-                console.error('Error finding/deleting reopen messages:', deleteErr);
-            }
-            
-            // Send a notification in the channel
-            await channel.send({
-                content: ticket.type === 'support' ?
-                    `🔓 This ticket has been re-opened by ${reopenedBy}.` :
-                    `🔓 This ${ticket.type} has been re-opened by ${reopenedBy}.`
-            });
-            
             return ticket;
         } catch (error) {
             console.error('Error reopening ticket:', error);
             throw error;
         }
     }
+
+    async fixTicketPermissions() {
+        console.log('Checking and fixing permissions for all active tickets...');
+        
+        let fixedCount = 0;
+        let errorCount = 0;
+        
+        for (const [ticketId, ticket] of this.activeTickets.entries()) {
+            try {
+                console.log(`Checking permissions for ticket ${ticketId}...`);
+                
+                // Fetch the channel
+                const channel = await this.client.channels.fetch(ticket.channelId).catch(err => {
+                    console.error(`Error fetching channel for ticket ${ticketId}:`, err);
+                    return null;
+                });
+                
+                if (!channel) {
+                    console.log(`Channel for ticket ${ticketId} not found or no access, skipping`);
+                    continue;
+                }
+                
+                // Fix permissions for the ticket channel
+                const guild = channel.guild;
+                
+                // Find the Clutch Support Admin role
+                const adminRole = guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+                
+                // Get the current permission overwrites to preserve added users and roles
+                const currentOverwrites = channel.permissionOverwrites.cache;
+                const preservedOverwrites = [];
+                
+                // Check current permission overwrites for any users or roles that have explicit permission
+                for (const [id, overwrite] of currentOverwrites.entries()) {
+                    // Skip guild.id, bot, and creator (we'll add these explicitly)
+                    if (id === guild.id || id === this.client.user.id || 
+                        id === ticket.creatorId || (adminRole && id === adminRole.id)) {
+                        continue;
+                    }
+                    
+                    // If this user/role has explicit view permission, preserve it
+                    if (overwrite.allow.has(PermissionFlagsBits.ViewChannel)) {
+                        preservedOverwrites.push({
+                            id: id,
+                            allow: [
+                                PermissionFlagsBits.ViewChannel,
+                                PermissionFlagsBits.SendMessages,
+                                PermissionFlagsBits.ReadMessageHistory
+                            ]
+                        });
+                        console.log(`Preserving permissions for ${id} in ticket ${ticketId}`);
+                    }
+                }
+                
+                // Make sure the creator's user is in the cache by trying to fetch them
+                try {
+                    await this.client.users.fetch(ticket.creatorId);
+                } catch (fetchErr) {
+                    console.warn(`Could not fetch ticket creator (ID: ${ticket.creatorId}) for ticket ${ticketId}: ${fetchErr.message}`);
+                    // We'll still include their ID in the permissions, but log a warning
+                }
+                
+                // Update permission overwrites - start with basic ones that don't require fetching
+                const permissionOverwrites = [
+                    {
+                        id: guild.id,
+                        deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+                    },
+                    {
+                        id: this.client.user.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ManageMessages
+                        ]
+                    }
+                ];
+                
+                // Only add creator permissions if we can validate they exist
+                const creatorExists = guild.members.cache.has(ticket.creatorId);
+                if (creatorExists) {
+                    permissionOverwrites.push({
+                        id: ticket.creatorId,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory
+                        ]
+                    });
+                } else {
+                    console.log(`Creator ${ticket.creatorId} for ticket ${ticketId} is not in the guild's cache, skipping permission setup for them`);
+                }
+                
+                // Add the preserved overwrites
+                preservedOverwrites.forEach(overwrite => {
+                    // Verify the ID exists as a valid user or role before adding
+                    const isUser = guild.members.cache.has(overwrite.id);
+                    const isRole = guild.roles.cache.has(overwrite.id);
+                    
+                    if (isUser || isRole) {
+                        permissionOverwrites.push(overwrite);
+                    } else {
+                        console.log(`Skipping permissions for ${overwrite.id} in ticket ${ticketId} - not found in cache`);
+                    }
+                });
+                
+                // If admin role exists, add permission for that role
+                if (adminRole) {
+                    permissionOverwrites.push({
+                        id: adminRole.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory
+                        ]
+                    });
+                }
+                
+                // Set the channel permissions
+                await channel.permissionOverwrites.set(permissionOverwrites);
+                console.log(`Fixed permissions for ticket ${ticketId}`);
+                fixedCount++;
+            } catch (error) {
+                console.error(`Error fixing permissions for ticket ${ticketId}:`, error);
+                errorCount++;
+            }
+        }
+        
+        console.log(`Permissions fixed for ${fixedCount} tickets. Errors: ${errorCount}`);
+        return { fixedCount, errorCount };
+    }
 }
 
-module.exports = TicketManager; 
+module.exports = TicketManager;

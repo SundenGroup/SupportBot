@@ -44,27 +44,74 @@ module.exports = {
                 c => c.name === closedCategoryName && c.type === ChannelType.GuildCategory
             );
             
+            // Find the "Clutch Support Admin" role
+            const adminRole = interaction.guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+            
+            if (adminRole) {
+                console.log(`Found "Clutch Support Admin" role with ID: ${adminRole.id}`);
+            } else {
+                console.log(`"Clutch Support Admin" role not found in guild ${interaction.guild.name}`);
+            }
+            
+            // Set up permission overwrites for the category, restricting to admin role if it exists
+            const permissionOverwrites = [
+                {
+                    id: interaction.guild.id,
+                    deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+                },
+                {
+                    id: interaction.client.user.id,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                }
+            ];
+            
+            // If admin role exists, add permission for that role
+            if (adminRole) {
+                permissionOverwrites.push({
+                    id: adminRole.id,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                    deny: [PermissionFlagsBits.SendMessages]
+                });
+                console.log(`Granting closed category access to "Clutch Support Admin" role`);
+            }
+            
             if (!closedCategory) {
                 closedCategory = await interaction.guild.channels.create({
                     name: closedCategoryName,
                     type: ChannelType.GuildCategory,
-                    permissionOverwrites: [
-                        {
-                            id: interaction.guild.id,
-                            deny: [PermissionFlagsBits.SendMessages],
-                            allow: [PermissionFlagsBits.ViewChannel]
-                        }
-                    ]
+                    permissionOverwrites: permissionOverwrites
                 });
+            } else {
+                // Update existing category permissions
+                await closedCategory.permissionOverwrites.set(permissionOverwrites);
             }
             
             // Move the channel to the closed category
             await interaction.channel.setParent(closedCategory.id);
             
-            // Lock the channel (prevent everyone from sending messages)
-            await interaction.channel.permissionOverwrites.edit(interaction.guild.id, {
-                SendMessages: false
-            });
+            // Update channel-specific permissions
+            const channelPermissionOverwrites = [
+                {
+                    id: interaction.guild.id,
+                    deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+                },
+                {
+                    id: interaction.client.user.id,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                }
+            ];
+            
+            // If admin role exists, add permission for that role
+            if (adminRole) {
+                channelPermissionOverwrites.push({
+                    id: adminRole.id,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                    deny: [PermissionFlagsBits.SendMessages]
+                });
+            }
+            
+            // Set the channel permissions directly
+            await interaction.channel.permissionOverwrites.set(channelPermissionOverwrites);
             
             // Update ticket status in database
             await interaction.client.tickets.db.updateTicket(ticket.id, {

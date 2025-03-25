@@ -340,8 +340,8 @@ client.on(Events.InteractionCreate, async interaction => {
                             value: 'Add a role to the current ticket, giving all role members access'
                         },
                         {
-                            name: '/setup-support',
-                            value: 'Creates a dedicated support ticket channel (admin only)'
+                            name: '/create-control',
+                            value: 'Create a new main control room for managing tickets (admin only)'
                         },
                         {
                             name: '/help',
@@ -403,90 +403,49 @@ client.on(Events.InteractionCreate, async interaction => {
                 
                 if (isTicket) {
                     // This is a ticket creation from a control room
-                    // Create the ticket directly without showing a modal
+                    // Use the ticket manager instead of direct creation to ensure proper category
                     await interaction.deferReply({ ephemeral: true });
                     
                     try {
                         // Get the next sequential ticket number for this type
-                        const ticketNumber = await client.tickets.db.getNextTicketNumber(type, interaction.guild.id);
+                        let ticketNumber;
+                        
+                        // Add timeout to prevent infinite waiting
+                        const ticketNumberPromise = client.tickets.db.getNextTicketNumber(type, interaction.guild.id);
+                        const timeoutPromise = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Ticket counter generation timed out')), 5000)
+                        );
+                        
+                        try {
+                            // Race between the normal counter generation and the timeout
+                            ticketNumber = await Promise.race([ticketNumberPromise, timeoutPromise]);
+                        } catch (counterError) {
+                            console.error('Error getting ticket counter:', counterError);
+                            // If it times out or errors, use a fallback random number
+                            ticketNumber = Math.floor(Math.random() * 10000) + 1;
+                            console.log(`Using fallback counter: ${ticketNumber}`);
+                        }
+                        
                         // Format the ticket number with leading zeros (0001, 0002, etc.)
                         const name = ticketNumber.toString().padStart(4, '0');
                         
-                        // Use the same category as the control room
-                        const ticketCategory = interaction.channel.parent;
+                        // Use the ticket manager to create the ticket, which will ensure it's in the right category
+                        console.log(`Creating ${type} ticket "${name}" through ticket manager`);
                         
-                        // Create ticket channel
-                        const ticketChannel = await interaction.guild.channels.create({
-                            name: `${type}-${name}`,
-                            type: ChannelType.GuildText,
-                            parent: ticketCategory,
-                            permissionOverwrites: [
-                                {
-                                    id: interaction.guild.id,
-                                    deny: [PermissionFlagsBits.ViewChannel]
-                                },
-                                {
-                                    id: interaction.user.id,
-                                    allow: [PermissionFlagsBits.ViewChannel]
-                                }
-                            ]
-                        });
-                        
-                        // Create ticket in database
-                        const ticketId = Date.now().toString(36);
-                        const ticketData = {
-                            id: ticketId,
-                            guildId: interaction.guild.id,
-                            channelId: ticketChannel.id,
-                            creatorId: interaction.user.id,
-                            type,
-                            name,
-                            createdAt: Date.now(),
-                            status: 'open'
-                        };
-                        
-                        await client.tickets.db.saveTicket(ticketData);
-                        await client.tickets.db.addParticipant(ticketId, interaction.user.id, 'creator');
-                        await client.tickets.db.logAction(ticketId, 'create', interaction.user.id, { type, name });
-                        
-                        client.tickets.activeTickets.set(ticketId, ticketData);
-                        
-                        // Add admin controls with transcript, add user, and close ticket buttons
-                        const adminButtons = new ActionRowBuilder()
-                            .addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`add_user_${ticketId}`)
-                                    .setLabel('Add User')
-                                    .setStyle(ButtonStyle.Success)
-                                    .setEmoji('👤'),
-                                new ButtonBuilder()
-                                    .setCustomId(`add_role_${ticketId}`)
-                                    .setLabel('Add Role')
-                                    .setStyle(ButtonStyle.Success)
-                                    .setEmoji('👥'),
-                                new ButtonBuilder()
-                                    .setCustomId(`close_ticket_${ticketId}`)
-                                    .setLabel(type === 'support' ? 
-                                        'Close Ticket' : 
-                                        `Close ${type.charAt(0).toUpperCase() + type.slice(1)}`)
-                                    .setStyle(ButtonStyle.Danger)
-                                    .setEmoji('🔒')
-                            );
-
-                        // Send buttons with admin-only visibility
-                        await ticketChannel.send({
-                            content: type === 'support' ? 
-                                'Ticket Controls:' : 
-                                `${type.charAt(0).toUpperCase() + type.slice(1)} Controls:`,
-                            components: [adminButtons]
+                        // Create the ticket using the ticket manager method
+                        const ticket = await client.tickets.createTicket({
+                            guild: interaction.guild,
+                            creator: interaction.user,
+                            type: type,
+                            name: name,
+                            description: `${type.charAt(0).toUpperCase() + type.slice(1)} ticket #${name}`,
+                            sourceChannelId: interaction.channelId // Pass the source channel ID for reference
                         });
                         
                         await interaction.editReply({
                             content: type === 'support' ? 
-                                `${type.charAt(0).toUpperCase() + type.slice(1)} ticket created: <#${ticketChannel.id}>` :
-                                type === 'room' ? 
-                                    `Room created: <#${ticketChannel.id}>` :
-                                    `${type.charAt(0).toUpperCase() + type.slice(1)} room created: <#${ticketChannel.id}>`,
+                                `${type.charAt(0).toUpperCase() + type.slice(1)} ticket created: <#${ticket.channelId}>` :
+                                `${type.charAt(0).toUpperCase() + type.slice(1)} room created: <#${ticket.channelId}>`,
                             ephemeral: true
                         });
                     } catch (error) {
@@ -494,9 +453,7 @@ client.on(Events.InteractionCreate, async interaction => {
                         await interaction.editReply({
                             content: type === 'support' ? 
                                 `Failed to create ${type} ticket: ${error.message}` :
-                                type === 'room' ?
-                                    `Failed to create room: ${error.message}` :
-                                    `Failed to create ${type} room: ${error.message}`,
+                                `Failed to create ${type} room: ${error.message}`,
                             ephemeral: true
                         });
                     }
@@ -1120,6 +1077,37 @@ client.on(Events.InteractionCreate, async interaction => {
                         'Closed Support Tickets' : 
                         `Closed ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`;
                     
+                    // Find the "Clutch Support Admin" role
+                    const adminRole = interaction.guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+                    
+                    if (adminRole) {
+                        console.log(`Found "Clutch Support Admin" role with ID: ${adminRole.id}`);
+                    } else {
+                        console.log(`"Clutch Support Admin" role not found in guild ${interaction.guild.name}`);
+                    }
+                    
+                    // Set up permission overwrites for the category, restricting to admin role if it exists
+                    const permissionOverwrites = [
+                        {
+                            id: interaction.guild.id,
+                            deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+                        },
+                        {
+                            id: client.user.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                        }
+                    ];
+                    
+                    // If admin role exists, add permission for that role
+                    if (adminRole) {
+                        permissionOverwrites.push({
+                            id: adminRole.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                            deny: [PermissionFlagsBits.SendMessages]
+                        });
+                        console.log(`Granting closed category access to "Clutch Support Admin" role`);
+                    }
+                    
                     let closedCategory = interaction.guild.channels.cache.find(
                         c => c.name === closedCategoryName && c.type === ChannelType.GuildCategory
                     );
@@ -1128,23 +1116,39 @@ client.on(Events.InteractionCreate, async interaction => {
                         closedCategory = await interaction.guild.channels.create({
                             name: closedCategoryName,
                             type: ChannelType.GuildCategory,
-                            permissionOverwrites: [
-                                {
-                                    id: interaction.guild.id,
-                                    deny: [PermissionFlagsBits.SendMessages],
-                                    allow: [PermissionFlagsBits.ViewChannel]
-                                }
-                            ]
+                            permissionOverwrites: permissionOverwrites
                         });
+                    } else {
+                        // Update existing category permissions
+                        await closedCategory.permissionOverwrites.set(permissionOverwrites);
                     }
                     
                     // Move the channel to the closed category
                     await channel.setParent(closedCategory.id);
                     
-                    // Lock the channel (prevent everyone from sending messages)
-                    await channel.permissionOverwrites.edit(interaction.guild.id, {
-                        SendMessages: false
-                    });
+                    // Update channel-specific permissions
+                    const channelPermissionOverwrites = [
+                        {
+                            id: interaction.guild.id,
+                            deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+                        },
+                        {
+                            id: client.user.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                        }
+                    ];
+                    
+                    // If admin role exists, add permission for that role
+                    if (adminRole) {
+                        channelPermissionOverwrites.push({
+                            id: adminRole.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                            deny: [PermissionFlagsBits.SendMessages]
+                        });
+                    }
+                    
+                    // Set the channel permissions directly
+                    await channel.permissionOverwrites.set(channelPermissionOverwrites);
                     
                     // Update ticket status in database
                     await client.tickets.db.updateTicket(ticketId, {
@@ -1467,6 +1471,37 @@ client.on(Events.InteractionCreate, async interaction => {
                         'Closed Support Tickets' : 
                         `Closed ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`;
                     
+                    // Find the "Clutch Support Admin" role
+                    const adminRole = interaction.guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
+                    
+                    if (adminRole) {
+                        console.log(`Found "Clutch Support Admin" role with ID: ${adminRole.id}`);
+                    } else {
+                        console.log(`"Clutch Support Admin" role not found in guild ${interaction.guild.name}`);
+                    }
+                    
+                    // Set up permission overwrites for the category, restricting to admin role if it exists
+                    const permissionOverwrites = [
+                        {
+                            id: interaction.guild.id,
+                            deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+                        },
+                        {
+                            id: client.user.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                        }
+                    ];
+                    
+                    // If admin role exists, add permission for that role
+                    if (adminRole) {
+                        permissionOverwrites.push({
+                            id: adminRole.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                            deny: [PermissionFlagsBits.SendMessages]
+                        });
+                        console.log(`Granting closed category access to "Clutch Support Admin" role`);
+                    }
+                    
                     let closedCategory = interaction.guild.channels.cache.find(
                         c => c.name === closedCategoryName && c.type === ChannelType.GuildCategory
                     );
@@ -1475,23 +1510,39 @@ client.on(Events.InteractionCreate, async interaction => {
                         closedCategory = await interaction.guild.channels.create({
                             name: closedCategoryName,
                             type: ChannelType.GuildCategory,
-                            permissionOverwrites: [
-                                {
-                                    id: interaction.guild.id,
-                                    deny: [PermissionFlagsBits.SendMessages],
-                                    allow: [PermissionFlagsBits.ViewChannel]
-                                }
-                            ]
+                            permissionOverwrites: permissionOverwrites
                         });
+                    } else {
+                        // Update existing category permissions
+                        await closedCategory.permissionOverwrites.set(permissionOverwrites);
                     }
                     
                     // Move the channel to the closed category
                     await channel.setParent(closedCategory.id);
                     
-                    // Lock the channel (prevent everyone from sending messages)
-                    await channel.permissionOverwrites.edit(interaction.guild.id, {
-                        SendMessages: false
-                    });
+                    // Update channel-specific permissions
+                    const channelPermissionOverwrites = [
+                        {
+                            id: interaction.guild.id,
+                            deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+                        },
+                        {
+                            id: client.user.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                        }
+                    ];
+                    
+                    // If admin role exists, add permission for that role
+                    if (adminRole) {
+                        channelPermissionOverwrites.push({
+                            id: adminRole.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                            deny: [PermissionFlagsBits.SendMessages]
+                        });
+                    }
+                    
+                    // Set the channel permissions directly
+                    await channel.permissionOverwrites.set(channelPermissionOverwrites);
                     
                     // Update ticket status in database
                     await client.tickets.db.updateTicket(ticketId, {
@@ -1702,19 +1753,34 @@ client.on(Events.InteractionCreate, async interaction => {
                     // Generate a default name for the channel
                     const defaultName = 'control';
                     
-                    // Create a control room with the custom type
-                    const ticket = await client.tickets.createTicket({
+                    // Create a control room with the custom type, with timeout
+                    const createTicketPromise = client.tickets.createTicket({
                         guild: interaction.guild,
                         creator: interaction.user,
                         type: customType,
                         name: defaultName,
                         description: `${customType.charAt(0).toUpperCase() + customType.slice(1)} management channel`
                     });
-
-                    await interaction.editReply({
-                        content: `${customType.charAt(0).toUpperCase() + customType.slice(1)} control room created: <#${ticket.channelId}>`,
-                        ephemeral: true
-                    });
+                    
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Ticket creation timed out')), 10000)
+                    );
+                    
+                    try {
+                        // Race between ticket creation and timeout
+                        const ticket = await Promise.race([createTicketPromise, timeoutPromise]);
+                        
+                        await interaction.editReply({
+                            content: `${customType.charAt(0).toUpperCase() + customType.slice(1)} control room created: <#${ticket.channelId}>`,
+                            ephemeral: true
+                        });
+                    } catch (timeoutError) {
+                        console.error('Ticket creation error or timeout:', timeoutError);
+                        await interaction.editReply({
+                            content: `Failed to create the ${customType} management channel: ${timeoutError.message}. The process might be stuck. Please try again later with a different name.`,
+                            ephemeral: true
+                        });
+                    }
                 } catch (error) {
                     console.error('Error creating custom type channel:', error);
                     await interaction.editReply({
@@ -1951,7 +2017,8 @@ client.on(Events.InteractionCreate, async interaction => {
                             .setTitle('Admin Commands')
                             .setDescription('Commands for server administrators')
                             .addFields(
-                                { name: '`/setup-support`', value: 'Creates a dedicated support ticket channel with customizable title and description', inline: false }
+                                { name: '`/create-control`', value: 'Create a main control room for managing tickets', inline: false },
+                                { name: '`/help`', value: 'Show this help menu', inline: false }
                             );
                         break;
                     case 'ticket_types':
@@ -2002,7 +2069,7 @@ client.on(Events.InteractionCreate, async interaction => {
                                 },
                                 { 
                                     name: '⚙️ Admin Commands',
-                                    value: '`/setup-support` - Create a dedicated support ticket channel\n' +
+                                    value: '`/create-control` - Create a main control room for managing tickets\n' +
                                            '`/help` - Show this help menu',
                                     inline: false 
                                 },
