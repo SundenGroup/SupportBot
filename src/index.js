@@ -165,7 +165,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     },
                     { 
                         name: '⚙️ Admin Commands',
-                        value: 'Commands for server administrators - includes `/setup-support` for creating support channels and managing ticket categories.',
+                        value: 'Commands for server administrators - includes `/create-control` for creating the main control room for managing tickets.',
                         inline: false 
                     },
                     { 
@@ -255,7 +255,7 @@ client.on(Events.InteractionCreate, async interaction => {
                         },
                         {
                             name: '2️⃣ Set Up Support Channels',
-                            value: 'Use the `/setup-support` command to create dedicated support ticket channels in specific categories for different needs.'
+                            value: 'Use the `/create-control` command to create the main control room where users can create different types of tickets.'
                         },
                         {
                             name: '3️⃣ Configure Permissions',
