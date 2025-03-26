@@ -24,6 +24,10 @@ const commands = [
     description: "Reopen a closed ticket"
   },
   {
+    name: "delete",
+    description: "Delete the current ticket and generate a transcript"
+  },
+  {
     name: "add",
     description: "Add a user to the current ticket",
     options: [
