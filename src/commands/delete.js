@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, AttachmentBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, AttachmentBuilder, ChannelType } = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -9,8 +9,10 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
         
         try {
-            // Get the ticket data for this channel
-            const ticket = await interaction.client.tickets.db.getTicketByChannelId(interaction.channel.id);
+            // Get all tickets and find the one for this channel
+            const tickets = await interaction.client.tickets.db.getTickets();
+            const ticket = tickets.find(t => t.channelId === interaction.channel.id);
+            
             if (!ticket) {
                 await interaction.editReply({
                     content: 'This command can only be used in ticket channels.',
