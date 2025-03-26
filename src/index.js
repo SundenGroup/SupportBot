@@ -886,8 +886,9 @@ client.on(Events.InteractionCreate, async interaction => {
                     // Check if user has permission (creator or admin)
                     const isCreator = interaction.user.id === ticket.creatorId;
                     const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
                     
-                    if (!isCreator && !isAdmin) {
+                    if (!isCreator && !isAdmin && !hasAdminRole) {
                         await interaction.reply({
                             content: 'You do not have permission to add users to this ticket.',
                             ephemeral: true
@@ -937,8 +938,9 @@ client.on(Events.InteractionCreate, async interaction => {
                     // Check if user has permission (creator or admin)
                     const isCreator = interaction.user.id === ticket.creatorId;
                     const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
                     
-                    if (!isCreator && !isAdmin) {
+                    if (!isCreator && !isAdmin && !hasAdminRole) {
                         await interaction.reply({
                             content: 'You do not have permission to add roles to this ticket.',
                             ephemeral: true
@@ -988,8 +990,9 @@ client.on(Events.InteractionCreate, async interaction => {
                     // Check if user has permission (creator or admin)
                     const isCreator = interaction.user.id === ticket.creatorId;
                     const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
                     
-                    if (!isCreator && !isAdmin) {
+                    if (!isCreator && !isAdmin && !hasAdminRole) {
                         await interaction.reply({
                             content: 'You do not have permission to close this ticket.',
                             ephemeral: true
@@ -1054,6 +1057,19 @@ client.on(Events.InteractionCreate, async interaction => {
                     if (!ticket) {
                         await interaction.editReply({
                             content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+
+                    // Check if user has permission (creator, admin, or Clutch Support Admin role)
+                    const isCreator = interaction.user.id === ticket.creatorId;
+                    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
+                    
+                    if (!isCreator && !isAdmin && !hasAdminRole) {
+                        await interaction.editReply({
+                            content: 'You do not have permission to close this ticket.',
                             ephemeral: true
                         });
                         return;
@@ -1345,6 +1361,19 @@ client.on(Events.InteractionCreate, async interaction => {
                         });
                         return;
                     }
+
+                    // Check if user has permission (creator, admin, or Clutch Support Admin role)
+                    const isCreator = interaction.user.id === ticket.creatorId;
+                    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
+                    
+                    if (!isCreator && !isAdmin && !hasAdminRole) {
+                        await interaction.editReply({
+                            content: 'You do not have permission to delete this ticket.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
                     
                     // Get the channel
                     const channel = await interaction.guild.channels.fetch(ticket.channelId);
@@ -1448,6 +1477,19 @@ client.on(Events.InteractionCreate, async interaction => {
                     if (!ticket) {
                         await interaction.editReply({
                             content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+
+                    // Check if user has permission (creator, admin, or Clutch Support Admin role)
+                    const isCreator = interaction.user.id === ticket.creatorId;
+                    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
+                    
+                    if (!isCreator && !isAdmin && !hasAdminRole) {
+                        await interaction.editReply({
+                            content: 'You do not have permission to close this ticket.',
                             ephemeral: true
                         });
                         return;
@@ -2004,9 +2046,10 @@ client.on(Events.InteractionCreate, async interaction => {
                             .setTitle('Ticket Commands')
                             .setDescription('Commands for managing your tickets')
                             .addFields(
-                                { name: '`/ticket close`', value: 'Close the current ticket and move it to the appropriate closed category', inline: false },
-                                { name: '`/ticket rename [name]`', value: 'Rename the current ticket', inline: false },
-                                { name: '`/ticket reopen`', value: 'Reopen a closed ticket', inline: false },
+                                { name: '`/close`', value: 'Close the current ticket and move it to the appropriate closed category', inline: false },
+                                { name: '`/rename [name]`', value: 'Rename the current ticket', inline: false },
+                                { name: '`/reopen`', value: 'Reopen a closed ticket', inline: false },
+                                { name: '`/delete`', value: 'Delete the current ticket and generate a transcript', inline: false },
                                 { name: '`/add [user]`', value: 'Add a user to the current ticket', inline: false },
                                 { name: '`/addrole [role]`', value: 'Add a role to the current ticket', inline: false },
                                 { name: '`/help`', value: 'Show this help menu', inline: false }
@@ -2060,9 +2103,10 @@ client.on(Events.InteractionCreate, async interaction => {
                                 // Commands
                                 { 
                                     name: '🎫 Ticket Commands',
-                                    value: '`/ticket close` - Close the current ticket\n' +
-                                           '`/ticket rename [name]` - Rename the current ticket\n' +
-                                           '`/ticket reopen` - Reopen a closed ticket\n' +
+                                    value: '`/close` - Close the current ticket\n' +
+                                           '`/rename [name]` - Rename the current ticket\n' +
+                                           '`/reopen` - Reopen a closed ticket\n' +
+                                           '`/delete` - Delete the current ticket\n' +
                                            '`/add [user]` - Add a user to the current ticket\n' +
                                            '`/addrole [role]` - Add a role to the current ticket',
                                     inline: false 
