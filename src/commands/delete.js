@@ -9,9 +9,8 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
         
         try {
-            // Get all tickets and find the one for this channel
-            const tickets = await interaction.client.tickets.db.getTickets();
-            const ticket = tickets.find(t => t.channelId === interaction.channel.id);
+            // Get the ticket data for this channel
+            const ticket = await interaction.client.tickets.db.getTicketByChannel(interaction.channel.id);
             
             if (!ticket) {
                 await interaction.editReply({
