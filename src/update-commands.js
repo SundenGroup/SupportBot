@@ -65,6 +65,25 @@ const ticketCommand = {
       type: 1, // SUB_COMMAND
       name: "reopen",
       description: "Reopen a closed ticket"
+    },
+    {
+      type: 1, // SUB_COMMAND
+      name: "remove",
+      description: "Remove a user or role from a ticket",
+      options: [
+        {
+          type: 6, // USER
+          name: "user",
+          description: "User to remove from the ticket",
+          required: false
+        },
+        {
+          type: 8, // ROLE
+          name: "role",
+          description: "Role to remove from the ticket",
+          required: false
+        }
+      ]
     }
   ]
 };
