@@ -340,6 +340,10 @@ client.on(Events.InteractionCreate, async interaction => {
                             value: 'Add a role to the current ticket, giving all role members access'
                         },
                         {
+                            name: '/remove [user/role]',
+                            value: 'Remove a user or role from the current ticket'
+                        },
+                        {
                             name: '/create-control',
                             value: 'Create a new main control room for managing tickets (admin only)'
                         },
@@ -2127,6 +2131,8 @@ client.on(Events.InteractionCreate, async interaction => {
                                 { name: '`/delete`', value: 'Delete the current ticket and generate a transcript', inline: false },
                                 { name: '`/add [user]`', value: 'Add a user to the current ticket', inline: false },
                                 { name: '`/addrole [role]`', value: 'Add a role to the current ticket', inline: false },
+                                { name: '`/remove [user/role]`', value: 'Remove a user or role from the current ticket', inline: false },
+                                { name: '`/create-control`', value: 'Create a new main control room for managing tickets (admin only)', inline: false },
                                 { name: '`/help`', value: 'Show this help menu', inline: false }
                             );
                         break;
@@ -2183,7 +2189,8 @@ client.on(Events.InteractionCreate, async interaction => {
                                            '`/reopen` - Reopen a closed ticket\n' +
                                            '`/delete` - Delete the current ticket\n' +
                                            '`/add [user]` - Add a user to the current ticket\n' +
-                                           '`/addrole [role]` - Add a role to the current ticket',
+                                           '`/addrole [role]` - Add a role to the current ticket\n' +
+                                           '`/remove [user/role]` - Remove a user or role from the current ticket',
                                     inline: false 
                                 },
                                 { 
