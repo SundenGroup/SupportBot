@@ -4,28 +4,33 @@ const { clientId, token } = require('./config.json');
 // These are the only commands we want to register
 const commands = [
   {
-    name: "close",
-    description: "Close the current ticket and move it to the appropriate closed category"
-  },
-  {
-    name: "rename",
-    description: "Rename the current ticket",
+    name: "ticket",
+    description: "Manage tickets",
     options: [
       {
-        type: 3, // STRING
-        name: "name",
-        description: "New name for the ticket",
-        required: true
+        type: 1, // SUB_COMMAND
+        name: "close",
+        description: "Close a ticket"
+      },
+      {
+        type: 1, // SUB_COMMAND
+        name: "rename",
+        description: "Rename a ticket",
+        options: [
+          {
+            type: 3, // STRING
+            name: "name",
+            description: "New name for the ticket",
+            required: true
+          }
+        ]
+      },
+      {
+        type: 1, // SUB_COMMAND
+        name: "reopen",
+        description: "Reopen a closed ticket"
       }
     ]
-  },
-  {
-    name: "reopen",
-    description: "Reopen a closed ticket"
-  },
-  {
-    name: "delete",
-    description: "Delete the current ticket and generate a transcript"
   },
   {
     name: "add",
@@ -52,20 +57,26 @@ const commands = [
     ]
   },
   {
-    name: "remove",
-    description: "Remove a user or role from the current ticket",
+    name: "removeuser",
+    description: "Remove a user from the current ticket",
     options: [
       {
         type: 6, // USER
         name: "user",
         description: "User to remove from the ticket",
-        required: false
-      },
+        required: true
+      }
+    ]
+  },
+  {
+    name: "removerole",
+    description: "Remove a role from the current ticket",
+    options: [
       {
         type: 8, // ROLE
         name: "role",
         description: "Role to remove from the ticket",
-        required: false
+        required: true
       }
     ]
   },
