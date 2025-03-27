@@ -720,7 +720,7 @@ client.on(Events.InteractionCreate, async interaction => {
                             await interaction.editReply({
                                 content: ticketType === 'support' ?
                                     `Transcript for ticket #${ticket.name} has been automatically sent to the ${ticketType}-logs channel in the ${logsCategoryName} category.` :
-                                    `Transcript for ${ticketType} #${ticket.name} has been automatically sent to the ${ticketType}-logs channel in the ${logsCategoryName} category.`,
+                                    `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} closed and transcribed successfully. A transcript has been saved to the ${ticketType}-logs channel in the ${logsCategoryName} category.`,
                                 components: [row],
                                 ephemeral: true
                             });
@@ -1180,19 +1180,34 @@ client.on(Events.InteractionCreate, async interaction => {
                     const messages = await channel.messages.fetch({ limit: 10 });
                     const controlMessage = messages.find(msg => 
                         msg.author.id === client.user.id && 
-                        (msg.content === 'Ticket Controls:' || msg.content.endsWith(' Controls:')) &&
-                        msg.components.length > 0
+                        msg.components.length > 0 &&
+                        msg.components[0].components.some(c => c.customId && c.customId.startsWith('close_ticket_'))
                     );
                     
                     if (controlMessage) {
-                        await controlMessage.delete().catch(err => console.error('Error deleting control message:', err));
+                        await controlMessage.delete().catch(console.error);
                     }
-                    
-                    // Send a message in the channel
+
+                    // Add closed ticket message with delete and reopen buttons
+                    const closedMessage = new ActionRowBuilder()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`reopen_ticket_${ticketId}`)
+                                .setLabel('Reopen')
+                                .setStyle(ButtonStyle.Success)
+                                .setEmoji('🔓'),
+                            new ButtonBuilder()
+                                .setCustomId(`confirm_delete_${ticketId}`)
+                                .setLabel(ticketType === 'support' ? 'Delete Ticket' : `Delete ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`)
+                                .setStyle(ButtonStyle.Danger)
+                                .setEmoji('🗑️')
+                        );
+
                     await channel.send({
                         content: ticketType === 'support' ?
-                            `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the ${closedCategoryName} category.` :
-                            `🔒 This ${ticketType} has been closed by ${interaction.user}. The ${ticketType} has been moved to the ${closedCategoryName} category.`
+                            `This ticket has been closed by ${interaction.user}. The ticket can be deleted by the creator or administrators with the Clutch Support Admin role.` :
+                            `This ${ticketType} has been closed by ${interaction.user}. It can be deleted by the creator or administrators with the Clutch Support Admin role.`,
+                        components: [closedMessage]
                     });
                     
                     await interaction.editReply({
@@ -1600,19 +1615,34 @@ client.on(Events.InteractionCreate, async interaction => {
                     const messages = await channel.messages.fetch({ limit: 10 });
                     const controlMessage = messages.find(msg => 
                         msg.author.id === client.user.id && 
-                        (msg.content === 'Ticket Controls:' || msg.content.endsWith(' Controls:')) &&
-                        msg.components.length > 0
+                        msg.components.length > 0 &&
+                        msg.components[0].components.some(c => c.customId && c.customId.startsWith('close_ticket_'))
                     );
                     
                     if (controlMessage) {
-                        await controlMessage.delete().catch(err => console.error('Error deleting control message:', err));
+                        await controlMessage.delete().catch(console.error);
                     }
-                    
-                    // Send a message in the channel
+
+                    // Add closed ticket message with delete and reopen buttons
+                    const closedMessage = new ActionRowBuilder()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`reopen_ticket_${ticketId}`)
+                                .setLabel('Reopen')
+                                .setStyle(ButtonStyle.Success)
+                                .setEmoji('🔓'),
+                            new ButtonBuilder()
+                                .setCustomId(`confirm_delete_${ticketId}`)
+                                .setLabel(ticketType === 'support' ? 'Delete Ticket' : `Delete ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`)
+                                .setStyle(ButtonStyle.Danger)
+                                .setEmoji('🗑️')
+                        );
+
                     await channel.send({
                         content: ticketType === 'support' ?
-                            `🔒 This ticket has been closed by ${interaction.user}. The ticket has been moved to the ${closedCategoryName} category.` :
-                            `🔒 This ${ticketType} has been closed by ${interaction.user}. The ${ticketType} has been moved to the ${closedCategoryName} category.`
+                            `This ticket has been closed by ${interaction.user}. The ticket can be deleted by the creator or administrators with the Clutch Support Admin role.` :
+                            `This ${ticketType} has been closed by ${interaction.user}. It can be deleted by the creator or administrators with the Clutch Support Admin role.`,
+                        components: [closedMessage]
                     });
                     
                     await interaction.editReply({
@@ -1761,6 +1791,51 @@ client.on(Events.InteractionCreate, async interaction => {
                     console.error('Error closing and transcribing ticket:', error);
                     await interaction.editReply({
                         content: `Failed to close the ticket: ${error.message}`,
+                        ephemeral: true
+                    });
+                }
+            }
+            else if (customId.startsWith('reopen_ticket_')) {
+                await interaction.deferReply({ ephemeral: true });
+                
+                try {
+                    // Extract ticket ID from the custom ID
+                    const ticketId = customId.split('_')[2];
+                    
+                    // Get the ticket data
+                    const ticket = await client.tickets.db.getTicket(ticketId);
+                    if (!ticket) {
+                        await interaction.editReply({
+                            content: 'Ticket not found or has been deleted.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+
+                    // Check if user has permission (creator or admin)
+                    const isCreator = interaction.user.id === ticket.creatorId;
+                    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
+                    
+                    if (!isCreator && !isAdmin && !hasAdminRole) {
+                        await interaction.editReply({
+                            content: 'You do not have permission to reopen this ticket.',
+                            ephemeral: true
+                        });
+                        return;
+                    }
+
+                    // Use the ticket manager to reopen the ticket
+                    await client.tickets.reopenTicket(ticketId, interaction.user);
+                    
+                    await interaction.editReply({
+                        content: `Ticket re-opened successfully.`,
+                        ephemeral: true
+                    });
+                } catch (error) {
+                    console.error('Error reopening ticket:', error);
+                    await interaction.editReply({
+                        content: `Failed to reopen the ticket: ${error.message}`,
                         ephemeral: true
                     });
                 }

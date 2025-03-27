@@ -19,7 +19,17 @@ module.exports = {
         .addSubcommand(subcommand =>
             subcommand
                 .setName('reopen')
-                .setDescription('Reopen a closed ticket')),
+                .setDescription('Reopen a closed ticket'))
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('remove')
+                .setDescription('Remove a user or role from the ticket')
+                .addUserOption(option =>
+                    option.setName('user')
+                        .setDescription('The user to remove from the ticket'))
+                .addRoleOption(option =>
+                    option.setName('role')
+                        .setDescription('The role to remove from the ticket'))),
 
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
@@ -34,6 +44,9 @@ module.exports = {
                     break;
                 case 'reopen':
                     await handleTicketReopen(interaction);
+                    break;
+                case 'remove':
+                    await handleTicketRemove(interaction);
                     break;
                 default:
                     await interaction.reply({
@@ -167,6 +180,95 @@ async function handleTicketReopen(interaction) {
         console.error('Error re-opening ticket:', error);
         await interaction.editReply({
             content: `Failed to re-open the ticket: ${error.message}`,
+            ephemeral: true
+        });
+    }
+}
+
+async function handleTicketRemove(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+        const user = interaction.options.getUser('user');
+        const role = interaction.options.getRole('role');
+
+        if (!user && !role) {
+            await interaction.editReply({
+                content: 'You must specify either a user or a role to remove.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        if (user && role) {
+            await interaction.editReply({
+                content: 'You can only remove either a user or a role, not both at once.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        // Check if the current channel is a ticket
+        const channel = interaction.channel;
+        const ticket = await interaction.client.tickets.db.getTicketByChannel(channel.id);
+        
+        if (!ticket) {
+            await interaction.editReply({
+                content: 'This command can only be used in a ticket channel.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        // Check if user has permission (creator or admin)
+        const isCreator = interaction.user.id === ticket.creatorId;
+        const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+        const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
+        
+        if (!isCreator && !isAdmin && !hasAdminRole) {
+            await interaction.editReply({
+                content: 'You do not have permission to remove users or roles from this ticket.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        if (user) {
+            // Don't allow removing the creator
+            if (user.id === ticket.creatorId) {
+                await interaction.editReply({
+                    content: 'You cannot remove the ticket creator.',
+                    ephemeral: true
+                });
+                return;
+            }
+
+            // Remove user permissions
+            await channel.permissionOverwrites.delete(user.id);
+            
+            // Log the action
+            await interaction.client.tickets.db.logAction(ticket.id, 'remove_user', interaction.user.id, { removed_user: user.id });
+            
+            await interaction.editReply({
+                content: `Removed ${user} from the ticket.`,
+                ephemeral: true
+            });
+        } else if (role) {
+            // Remove role permissions
+            await channel.permissionOverwrites.delete(role.id);
+            
+            // Log the action
+            await interaction.client.tickets.db.logAction(ticket.id, 'remove_role', interaction.user.id, { removed_role: role.id });
+            
+            await interaction.editReply({
+                content: `Removed role ${role} from the ticket.`,
+                ephemeral: true
+            });
+        }
+    } catch (error) {
+        console.error('Error removing user/role from ticket:', error);
+        await interaction.editReply({
+            content: `Failed to remove user/role from the ticket: ${error.message}`,
             ephemeral: true
         });
     }
