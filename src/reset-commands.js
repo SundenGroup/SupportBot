@@ -52,6 +52,24 @@ const commands = [
     ]
   },
   {
+    name: "remove",
+    description: "Remove a user or role from the current ticket",
+    options: [
+      {
+        type: 6, // USER
+        name: "user",
+        description: "User to remove from the ticket",
+        required: false
+      },
+      {
+        type: 8, // ROLE
+        name: "role",
+        description: "Role to remove from the ticket",
+        required: false
+      }
+    ]
+  },
+  {
     name: "help",
     description: "Shows information about all bot commands and features"
   },
