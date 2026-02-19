@@ -222,6 +222,29 @@ class TicketManager {
                     });
                     console.log(`Granting ticket access to "Clutch Support Admin" role`);
                 }
+
+                // Add auto-roles for this ticket type
+                try {
+                    const autoRoleIds = await this.db.getAutoRoles(guild.id, type);
+                    for (const roleId of autoRoleIds) {
+                        const role = guild.roles.cache.get(roleId);
+                        if (role) {
+                            permissionOverwrites.push({
+                                id: roleId,
+                                allow: [
+                                    PermissionFlagsBits.ViewChannel,
+                                    PermissionFlagsBits.SendMessages,
+                                    PermissionFlagsBits.ReadMessageHistory
+                                ]
+                            });
+                            console.log(`Adding auto-role "${role.name}" to ${type} ticket`);
+                        } else {
+                            console.log(`Auto-role ${roleId} not found in guild, skipping`);
+                        }
+                    }
+                } catch (autoRoleError) {
+                    console.error('Error fetching auto-roles for ticket creation:', autoRoleError);
+                }
             }
 
             // Create the channel
@@ -964,7 +987,25 @@ class TicketManager {
                 });
                 console.log(`Granting reopened ticket access to "Clutch Support Admin" role`);
             }
-            
+
+            // Add auto-roles for this ticket type
+            try {
+                const autoRoleIds = await this.db.getAutoRoles(channel.guild.id, ticket.type);
+                for (const roleId of autoRoleIds) {
+                    const role = channel.guild.roles.cache.get(roleId);
+                    if (role) {
+                        await channel.permissionOverwrites.edit(roleId, {
+                            ViewChannel: true,
+                            SendMessages: true,
+                            ReadMessageHistory: true
+                        });
+                        console.log(`Adding auto-role "${role.name}" to reopened ${ticket.type} ticket`);
+                    }
+                }
+            } catch (autoRoleError) {
+                console.error('Error applying auto-roles on reopen:', autoRoleError);
+            }
+
             // Update ticket status in database
             await this.db.updateTicket(ticket.id, {
                 status: 'open',
@@ -1156,7 +1197,28 @@ class TicketManager {
                         ]
                     });
                 }
-                
+
+                // Add auto-roles for this ticket type
+                try {
+                    const autoRoleIds = await this.db.getAutoRoles(guild.id, ticket.type);
+                    for (const roleId of autoRoleIds) {
+                        const role = guild.roles.cache.get(roleId);
+                        if (role) {
+                            permissionOverwrites.push({
+                                id: roleId,
+                                allow: [
+                                    PermissionFlagsBits.ViewChannel,
+                                    PermissionFlagsBits.SendMessages,
+                                    PermissionFlagsBits.ReadMessageHistory
+                                ]
+                            });
+                            console.log(`Adding auto-role "${role.name}" to ticket ${ticketId} during permission fix`);
+                        }
+                    }
+                } catch (autoRoleError) {
+                    console.error(`Error fetching auto-roles for ticket ${ticketId}:`, autoRoleError);
+                }
+
                 // Set the channel permissions
                 await channel.permissionOverwrites.set(permissionOverwrites);
                 console.log(`Fixed permissions for ticket ${ticketId}`);

@@ -1,0 +1,19 @@
+{
+    "token": "YOUR_BOT_TOKEN_HERE",
+    "clientId": "YOUR_CLIENT_ID_HERE",
+    "staffRoles": ["ROLE_ID_1", "ROLE_ID_2"],
+    "ticketCategories": {
+        "support": {
+            "name": "Support Tickets",
+            "description": "Support ticket control room"
+        },
+        "match": {
+            "name": "Match Management",
+            "description": "Match control room"
+        },
+        "custom": {
+            "name": "Custom Management",
+            "description": "Custom management control room"
+        }
+    }
+}

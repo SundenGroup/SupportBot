@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Config with secrets
+src/config.json
+
+# Database files
+src/database/tickets.db
+src/database/tickets.db-shm
+src/database/tickets.db-wal
+src/database/backups/
+
+# OS files
+.DS_Store
+
+# Backup files
+*.bak
