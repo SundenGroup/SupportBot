@@ -308,35 +308,66 @@ class TicketManager {
                     components: [button]
                 });
             } else {
-                // If it's a regular ticket, add the admin control buttons
-                const adminButtons = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`add_user_${ticketId}`)
-                            .setLabel('Add User')
-                            .setStyle(ButtonStyle.Success)
-                            .setEmoji('👤'),
-                        new ButtonBuilder()
-                            .setCustomId(`add_role_${ticketId}`)
-                            .setLabel('Add Role')
-                            .setStyle(ButtonStyle.Success)
-                            .setEmoji('👥'),
-                        new ButtonBuilder()
-                            .setCustomId(`close_ticket_${ticketId}`)
-                            .setLabel(type === 'support' ? 
-                                'Close Ticket' : 
-                                `Close ${type.charAt(0).toUpperCase() + type.slice(1)}`)
-                            .setStyle(ButtonStyle.Danger)
-                            .setEmoji('🔒')
-                    );
-                
-                // Only send the control buttons, no welcome message
-                await channel.send({
-                    content: type === 'support' ? 
-                        'Ticket Controls:' : 
-                        `${type.charAt(0).toUpperCase() + type.slice(1)} Controls:`,
-                    components: [adminButtons]
-                });
+                // Check if creator is staff (has Clutch Support Admin role or ManageChannels permission)
+                let creatorIsStaff = false;
+                try {
+                    const member = await guild.members.fetch(creator.id);
+                    const adminRole = guild.roles.cache.find(r => r.name === 'Clutch Support Admin');
+                    creatorIsStaff = member.permissions.has(PermissionFlagsBits.ManageChannels) ||
+                        (adminRole && member.roles.cache.has(adminRole.id));
+                } catch (err) {
+                    console.error('Error checking creator staff status:', err);
+                }
+
+                const closeLabel = type === 'support' ?
+                    'Close Ticket' :
+                    `Close ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+
+                if (creatorIsStaff) {
+                    // Staff created ticket: show full panel (Add User, Add Role, Close)
+                    const adminButtons = new ActionRowBuilder()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`add_user_${ticketId}`)
+                                .setLabel('Add User')
+                                .setStyle(ButtonStyle.Success)
+                                .setEmoji('👤'),
+                            new ButtonBuilder()
+                                .setCustomId(`add_role_${ticketId}`)
+                                .setLabel('Add Role')
+                                .setStyle(ButtonStyle.Success)
+                                .setEmoji('👥'),
+                            new ButtonBuilder()
+                                .setCustomId(`close_ticket_${ticketId}`)
+                                .setLabel(closeLabel)
+                                .setStyle(ButtonStyle.Danger)
+                                .setEmoji('🔒')
+                        );
+
+                    await channel.send({
+                        content: type === 'support' ?
+                            'Ticket Controls:' :
+                            `${type.charAt(0).toUpperCase() + type.slice(1)} Controls:`,
+                        components: [adminButtons]
+                    });
+                } else {
+                    // Regular user created ticket: only show Close button
+                    const closeButton = new ActionRowBuilder()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`close_ticket_${ticketId}`)
+                                .setLabel(closeLabel)
+                                .setStyle(ButtonStyle.Danger)
+                                .setEmoji('🔒')
+                        );
+
+                    await channel.send({
+                        content: type === 'support' ?
+                            'Ticket Controls:' :
+                            `${type.charAt(0).toUpperCase() + type.slice(1)} Controls:`,
+                        components: [closeButton]
+                    });
+                }
             }
 
             return ticketData;
@@ -1044,35 +1075,66 @@ class TicketManager {
                     `🔓 This ${ticket.type} has been re-opened by ${reopenedBy}.`
             });
             
-            // Add admin controls with add user and close ticket buttons
-            const adminButtons = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`add_user_${ticket.id}`)
-                        .setLabel('Add User')
-                        .setStyle(ButtonStyle.Success)
-                        .setEmoji('👤'),
-                    new ButtonBuilder()
-                        .setCustomId(`add_role_${ticket.id}`)
-                        .setLabel('Add Role')
-                        .setStyle(ButtonStyle.Success)
-                        .setEmoji('👥'),
-                    new ButtonBuilder()
-                        .setCustomId(`close_ticket_${ticket.id}`)
-                        .setLabel(ticket.type === 'support' ? 
-                            'Close Ticket' : 
-                            `Close ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}`)
-                        .setStyle(ButtonStyle.Danger)
-                        .setEmoji('🔒')
-                );
-            
-            // Send new control buttons
-            await channel.send({
-                content: ticket.type === 'support' ? 
-                    'Ticket Controls:' : 
-                    `${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)} Controls:`,
-                components: [adminButtons]
-            });
+            // Check if the user reopening is staff
+            let reopenerIsStaff = false;
+            try {
+                const member = await guild.members.fetch(reopenedBy.id);
+                const staffRole = guild.roles.cache.find(r => r.name === 'Clutch Support Admin');
+                reopenerIsStaff = member.permissions.has(PermissionFlagsBits.ManageChannels) ||
+                    (staffRole && member.roles.cache.has(staffRole.id));
+            } catch (err) {
+                console.error('Error checking reopener staff status:', err);
+            }
+
+            const closeLabel = ticket.type === 'support' ?
+                'Close Ticket' :
+                `Close ${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)}`;
+
+            if (reopenerIsStaff) {
+                // Staff reopened: show full panel
+                const adminButtons = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`add_user_${ticket.id}`)
+                            .setLabel('Add User')
+                            .setStyle(ButtonStyle.Success)
+                            .setEmoji('👤'),
+                        new ButtonBuilder()
+                            .setCustomId(`add_role_${ticket.id}`)
+                            .setLabel('Add Role')
+                            .setStyle(ButtonStyle.Success)
+                            .setEmoji('👥'),
+                        new ButtonBuilder()
+                            .setCustomId(`close_ticket_${ticket.id}`)
+                            .setLabel(closeLabel)
+                            .setStyle(ButtonStyle.Danger)
+                            .setEmoji('🔒')
+                    );
+
+                await channel.send({
+                    content: ticket.type === 'support' ?
+                        'Ticket Controls:' :
+                        `${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)} Controls:`,
+                    components: [adminButtons]
+                });
+            } else {
+                // Regular user reopened: only show Close button
+                const closeButton = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`close_ticket_${ticket.id}`)
+                            .setLabel(closeLabel)
+                            .setStyle(ButtonStyle.Danger)
+                            .setEmoji('🔒')
+                    );
+
+                await channel.send({
+                    content: ticket.type === 'support' ?
+                        'Ticket Controls:' :
+                        `${ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1)} Controls:`,
+                    components: [closeButton]
+                });
+            }
             
             return ticket;
         } catch (error) {
