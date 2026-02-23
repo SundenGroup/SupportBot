@@ -1006,41 +1006,69 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     // Get the ticket type for message formatting
                     const ticketType = ticket.type;
-                    
-                    // Show confirmation buttons for closing or deleting the ticket
-                    const confirmButtons = new ActionRowBuilder()
-                        .addComponents(
-                            new ButtonBuilder()
-                                .setCustomId(`confirm_close_${ticketId}`)
-                                .setLabel('Move to Closed')
-                                .setStyle(ButtonStyle.Secondary)
-                                .setEmoji('📁'),
-                            new ButtonBuilder()
-                                .setCustomId(`close_and_transcribe_${ticketId}`)
-                                .setLabel('Close & Transcribe')
-                                .setStyle(ButtonStyle.Primary)
-                                .setEmoji('📝'),
-                            new ButtonBuilder()
-                                .setCustomId(`confirm_delete_${ticketId}`)
-                                .setLabel(ticketType === 'support' ? 
-                                    'Delete Ticket' : 
-                                    `Delete ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`)
-                                .setStyle(ButtonStyle.Danger)
-                                .setEmoji('🗑️'),
-                            new ButtonBuilder()
-                                .setCustomId(`cancel_close_${ticketId}`)
-                                .setLabel('Cancel')
-                                .setStyle(ButtonStyle.Success)
-                                .setEmoji('❌')
-                        );
-                    
-                    await interaction.reply({
-                        content: ticketType === 'support' ?
-                            'What would you like to do with this ticket?' :
-                            `What would you like to do with this ${ticketType}?`,
-                        components: [confirmButtons],
-                        ephemeral: true
-                    });
+
+                    // Determine if user is staff
+                    const isStaff = isAdmin || hasAdminRole;
+
+                    if (isStaff) {
+                        // Staff sees full options: Move to Closed, Close & Transcribe, Delete, Cancel
+                        const confirmButtons = new ActionRowBuilder()
+                            .addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`confirm_close_${ticketId}`)
+                                    .setLabel('Move to Closed')
+                                    .setStyle(ButtonStyle.Secondary)
+                                    .setEmoji('📁'),
+                                new ButtonBuilder()
+                                    .setCustomId(`close_and_transcribe_${ticketId}`)
+                                    .setLabel('Close & Transcribe')
+                                    .setStyle(ButtonStyle.Primary)
+                                    .setEmoji('📝'),
+                                new ButtonBuilder()
+                                    .setCustomId(`confirm_delete_${ticketId}`)
+                                    .setLabel(ticketType === 'support' ?
+                                        'Delete Ticket' :
+                                        `Delete ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`)
+                                    .setStyle(ButtonStyle.Danger)
+                                    .setEmoji('🗑️'),
+                                new ButtonBuilder()
+                                    .setCustomId(`cancel_close_${ticketId}`)
+                                    .setLabel('Cancel')
+                                    .setStyle(ButtonStyle.Success)
+                                    .setEmoji('❌')
+                            );
+
+                        await interaction.reply({
+                            content: ticketType === 'support' ?
+                                'What would you like to do with this ticket?' :
+                                `What would you like to do with this ${ticketType}?`,
+                            components: [confirmButtons],
+                            ephemeral: true
+                        });
+                    } else {
+                        // Regular user (ticket creator) sees only: Archive and Cancel
+                        const archiveButtons = new ActionRowBuilder()
+                            .addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`confirm_close_${ticketId}`)
+                                    .setLabel('Archive')
+                                    .setStyle(ButtonStyle.Secondary)
+                                    .setEmoji('📁'),
+                                new ButtonBuilder()
+                                    .setCustomId(`cancel_close_${ticketId}`)
+                                    .setLabel('Cancel')
+                                    .setStyle(ButtonStyle.Success)
+                                    .setEmoji('❌')
+                            );
+
+                        await interaction.reply({
+                            content: ticketType === 'support' ?
+                                'What would you like to do with this ticket?' :
+                                `What would you like to do with this ${ticketType}?`,
+                            components: [archiveButtons],
+                            ephemeral: true
+                        });
+                    }
                 } catch (error) {
                     console.error('Error showing close ticket options:', error);
                     await interaction.reply({
@@ -1192,125 +1220,144 @@ client.on(Events.InteractionCreate, async interaction => {
                         await controlMessage.delete().catch(console.error);
                     }
 
-                    // Add closed ticket message with delete and reopen buttons
-                    const closedMessage = new ActionRowBuilder()
-                        .addComponents(
-                            new ButtonBuilder()
-                                .setCustomId(`reopen_ticket_${ticketId}`)
-                                .setLabel('Reopen')
-                                .setStyle(ButtonStyle.Success)
-                                .setEmoji('🔓'),
-                            new ButtonBuilder()
-                                .setCustomId(`confirm_delete_${ticketId}`)
-                                .setLabel(ticketType === 'support' ? 'Delete Ticket' : `Delete ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`)
-                                .setStyle(ButtonStyle.Danger)
-                                .setEmoji('🗑️')
-                        );
+                    // Determine if the user closing is staff
+                    const isStaff = isAdmin || hasAdminRole;
 
-                    await channel.send({
-                        content: ticketType === 'support' ?
-                            `This ticket has been closed by ${interaction.user}. The ticket can be deleted by the creator or administrators with the Clutch Support Admin role.` :
-                            `This ${ticketType} has been closed by ${interaction.user}. It can be deleted by the creator or administrators with the Clutch Support Admin role.`,
-                        components: [closedMessage]
-                    });
-                    
-                    await interaction.editReply({
-                        content: ticketType === 'support' ?
-                            `Ticket closed successfully. The ticket has been moved to the ${closedCategoryName} category. Preparing transcript...` :
-                            `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} closed successfully. The ${ticketType} has been moved to the ${closedCategoryName} category. Preparing transcript...`,
-                        ephemeral: true
-                    });
-                    
-                    // Generate the transcript
-                    try {
-                        // Get all messages in the channel
-                        const allMessages = await channel.messages.fetch({ limit: 100 });
-                        const transcript = `Transcript for ${ticketType}-${ticket.name}\n` +
-                            `Created by: ${interaction.guild.members.cache.get(ticket.creatorId)?.user.tag || ticket.creatorId}\n` +
-                            `Created at: ${new Date(ticket.createdAt).toLocaleString()}\n` +
-                            `Closed by: ${interaction.user.tag}\n` +
-                            `Closed at: ${new Date().toLocaleString()}\n\n` +
-                            Array.from(allMessages.values())
-                                .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-                                .map(msg => `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}`)
-                                .join('\n\n');
-                        
-                        // Create transcript file
-                        const buffer = Buffer.from(transcript, 'utf8');
-                        const attachment = new AttachmentBuilder(buffer, {
-                            name: `transcript-${ticketId}.txt`
+                    if (isStaff) {
+                        // Staff closed: show Reopen + Delete buttons
+                        const closedMessage = new ActionRowBuilder()
+                            .addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`reopen_ticket_${ticketId}`)
+                                    .setLabel('Reopen')
+                                    .setStyle(ButtonStyle.Success)
+                                    .setEmoji('🔓'),
+                                new ButtonBuilder()
+                                    .setCustomId(`confirm_delete_${ticketId}`)
+                                    .setLabel(ticketType === 'support' ? 'Delete Ticket' : `Delete ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`)
+                                    .setStyle(ButtonStyle.Danger)
+                                    .setEmoji('🗑️')
+                            );
+
+                        await channel.send({
+                            content: ticketType === 'support' ?
+                                `This ticket has been closed by ${interaction.user}. The ticket can be deleted by administrators with the Clutch Support Admin role.` :
+                                `This ${ticketType} has been closed by ${interaction.user}. It can be deleted by administrators with the Clutch Support Admin role.`,
+                            components: [closedMessage]
                         });
-                        
-                        // Try to get the appropriate log channel for this ticket type
-                        let logChannel = null;
-                        
+
+                        await interaction.editReply({
+                            content: ticketType === 'support' ?
+                                `Ticket closed successfully. The ticket has been moved to the ${closedCategoryName} category. Preparing transcript...` :
+                                `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} closed successfully. Moved to ${closedCategoryName}. Preparing transcript...`,
+                            ephemeral: true
+                        });
+
+                        // Generate the transcript (staff close only)
                         try {
-                            logChannel = await client.tickets.getLogChannel(interaction.guild, ticketType);
-                            
-                            // Get category name for messaging
-                            let logsCategoryName;
-                            switch (ticketType) {
-                                case 'match':
-                                    logsCategoryName = 'Match Logs';
-                                    break;
-                                case 'support':
-                                    logsCategoryName = 'Support Logs';
-                                    break;
-                                case 'custom':
-                                    logsCategoryName = 'Custom Logs';
-                                    break;
-                                default:
-                                    logsCategoryName = `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} Logs`;
+                            const allMessages = await channel.messages.fetch({ limit: 100 });
+                            const transcript = `Transcript for ${ticketType}-${ticket.name}\n` +
+                                `Created by: ${interaction.guild.members.cache.get(ticket.creatorId)?.user.tag || ticket.creatorId}\n` +
+                                `Created at: ${new Date(ticket.createdAt).toLocaleString()}\n` +
+                                `Closed by: ${interaction.user.tag}\n` +
+                                `Closed at: ${new Date().toLocaleString()}\n\n` +
+                                Array.from(allMessages.values())
+                                    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+                                    .map(msg => `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}`)
+                                    .join('\n\n');
+
+                            const buffer = Buffer.from(transcript, 'utf8');
+                            const attachment = new AttachmentBuilder(buffer, {
+                                name: `transcript-${ticketId}.txt`
+                            });
+
+                            let logChannel = null;
+
+                            try {
+                                logChannel = await client.tickets.getLogChannel(interaction.guild, ticketType);
+
+                                let logsCategoryName;
+                                switch (ticketType) {
+                                    case 'match':
+                                        logsCategoryName = 'Match Logs';
+                                        break;
+                                    case 'support':
+                                        logsCategoryName = 'Support Logs';
+                                        break;
+                                    case 'custom':
+                                        logsCategoryName = 'Custom Logs';
+                                        break;
+                                    default:
+                                        logsCategoryName = `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} Logs`;
+                                }
+
+                                if (logChannel) {
+                                    await logChannel.send({
+                                        content: ticketType === 'support' ?
+                                            `Transcript for ticket #${ticket.name} (ID: ${ticketId}) - Closed by ${interaction.user.tag}:` :
+                                            `Transcript for ${ticketType} #${ticket.name} (ID: ${ticketId}) - Closed by ${interaction.user.tag}:`,
+                                        files: [attachment]
+                                    });
+
+                                    const selectButton = new ButtonBuilder()
+                                        .setCustomId(`transcribe_${ticketId}`)
+                                        .setLabel('Send Transcript to Another Channel')
+                                        .setStyle(ButtonStyle.Primary)
+                                        .setEmoji('📑');
+
+                                    const row = new ActionRowBuilder().addComponents(selectButton);
+
+                                    await interaction.followUp({
+                                        content: ticketType === 'support' ?
+                                            `Ticket closed and transcribed successfully. A transcript has been saved to the ${ticketType}-logs channel in the ${logsCategoryName} category.` :
+                                            `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} closed and transcribed successfully. A transcript has been saved to the ${ticketType}-logs channel in the ${logsCategoryName} category.`,
+                                        components: [row],
+                                        ephemeral: true
+                                    });
+                                    return;
+                                }
+                            } catch (logError) {
+                                console.error('Error getting log channel:', logError);
                             }
-                            
-                            // Send transcript to the log channel
-                            if (logChannel) {
-                                await logChannel.send({
-                                    content: ticketType === 'support' ? 
-                                        `Transcript for ticket #${ticket.name} (ID: ${ticketId}) - Closed by ${interaction.user.tag}:` :
-                                        `Transcript for ${ticketType} #${ticket.name} (ID: ${ticketId}) - Closed by ${interaction.user.tag}:`,
-                                    files: [attachment]
-                                });
-                                
-                                // Let the user know the transcript was saved and offer option to send to another channel
-                                const selectButton = new ButtonBuilder()
-                                    .setCustomId(`transcribe_${ticketId}`)
-                                    .setLabel('Send Transcript to Another Channel')
-                                    .setStyle(ButtonStyle.Primary)
-                                    .setEmoji('📑');
-                                
-                                const row = new ActionRowBuilder().addComponents(selectButton);
-                                
+
+                            // Fallback: manual channel selection
+                            const availableChannels = interaction.guild.channels.cache
+                                .filter(ch =>
+                                    ch.type === ChannelType.GuildText &&
+                                    ch.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)
+                                )
+                                .sort((a, b) => a.name.localeCompare(b.name))
+                                .map(ch => ({
+                                    label: ch.name,
+                                    value: ch.id,
+                                    description: ch.parent ? `Category: ${ch.parent.name}` : 'No category'
+                                }));
+
+                            if (availableChannels.length === 0) {
                                 await interaction.followUp({
-                                    content: ticketType === 'support' ?
-                                        `Ticket closed and transcribed successfully. A transcript has been saved to the ${ticketType}-logs channel in the ${logsCategoryName} category.` :
-                                        `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} closed and transcribed successfully. A transcript has been saved to the ${ticketType}-logs channel in the ${logsCategoryName} category.`,
-                                    components: [row],
+                                    content: 'Could not find a log channel or any available channels to send the transcript to.',
                                     ephemeral: true
                                 });
                                 return;
                             }
-                        } catch (logError) {
-                            console.error('Error getting log channel:', logError);
-                            // Fall through to manual selection if automatic fails
-                        }
-                        
-                        // If we get here, either logChannel wasn't found or there was an error
-                        // Proceed with manual channel selection
-                        // Get all text channels in the guild that the user can send messages to
-                        const availableChannels = interaction.guild.channels.cache
-                            .filter(ch => 
-                                ch.type === ChannelType.GuildText && 
-                                ch.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)
-                            )
-                            .sort((a, b) => a.name.localeCompare(b.name))
-                            .map(ch => ({
-                                label: ch.name,
-                                value: ch.id,
-                                description: ch.parent ? `Category: ${ch.parent.name}` : 'No category'
-                            }));
 
-                        if (availableChannels.length === 0) {
+                            const selectMenu = new StringSelectMenuBuilder()
+                                .setCustomId(`select_channel_${ticketId}`)
+                                .setPlaceholder('Select a channel to send the transcript to')
+                                .setMinValues(1)
+                                .setMaxValues(1);
+
+                            availableChannels.slice(0, 25).forEach(ch => {
+                                selectMenu.addOptions(
+                                    new StringSelectMenuOptionBuilder()
+                                        .setLabel(ch.label)
+                                        .setValue(ch.value)
+                                        .setDescription(ch.description.substring(0, 100))
+                                );
+                            });
+
+                            const row = new ActionRowBuilder().addComponents(selectMenu);
+
                             await interaction.followUp({
                                 content: ticketType === 'support' ?
                                     `No default logs channel found for tickets. Please select a channel to send the transcript to:` :
@@ -1318,41 +1365,35 @@ client.on(Events.InteractionCreate, async interaction => {
                                 components: [row],
                                 ephemeral: true
                             });
-                            return;
+                        } catch (transcriptError) {
+                            console.error('Error generating and sending transcript:', transcriptError);
+                            await interaction.followUp({
+                                content: `An error occurred while generating the transcript: ${transcriptError.message}`,
+                                ephemeral: true
+                            });
                         }
-
-                        // Create a select menu for channels (max 25 options as per Discord's limit)
-                        
-                        const selectMenu = new StringSelectMenuBuilder()
-                            .setCustomId(`select_channel_${ticketId}`)
-                            .setPlaceholder('Select a channel to send the transcript to')
-                            .setMinValues(1)
-                            .setMaxValues(1);
-                            
-                        // Add options to the select menu (limited to 25 by Discord)
-                        availableChannels.slice(0, 25).forEach(ch => {
-                            selectMenu.addOptions(
-                                new StringSelectMenuOptionBuilder()
-                                    .setLabel(ch.label)
-                                    .setValue(ch.value)
-                                    .setDescription(ch.description.substring(0, 100)) // Max 100 chars for description
+                    } else {
+                        // Regular user archived: show only Reopen button, no transcript
+                        const closedMessage = new ActionRowBuilder()
+                            .addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`reopen_ticket_${ticketId}`)
+                                    .setLabel('Reopen')
+                                    .setStyle(ButtonStyle.Success)
+                                    .setEmoji('🔓')
                             );
-                        });
-                        
-                        const row = new ActionRowBuilder().addComponents(selectMenu);
-                        
-                        // Send a message with the select menu
-                        await interaction.followUp({
+
+                        await channel.send({
                             content: ticketType === 'support' ?
-                                `No default logs channel found for tickets. Please select a channel to send the transcript to:` :
-                                `No default logs channel found for ${ticketType}s. Please select a channel to send the transcript to:`,
-                            components: [row],
-                            ephemeral: true
+                                `This ticket has been archived by ${interaction.user}. Staff can review and manage this ticket.` :
+                                `This ${ticketType} has been archived by ${interaction.user}. Staff can review and manage it.`,
+                            components: [closedMessage]
                         });
-                    } catch (transcriptError) {
-                        console.error('Error generating and sending transcript:', transcriptError);
-                        await interaction.followUp({
-                            content: `An error occurred while generating the transcript: ${transcriptError.message}`,
+
+                        await interaction.editReply({
+                            content: ticketType === 'support' ?
+                                `Ticket archived successfully. It has been moved to the ${closedCategoryName} category. Staff can review it there.` :
+                                `${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)} archived successfully. Moved to ${closedCategoryName}. Staff can review it there.`,
                             ephemeral: true
                         });
                     }
@@ -1381,19 +1422,18 @@ client.on(Events.InteractionCreate, async interaction => {
                         return;
                     }
 
-                    // Check if user has permission (creator, admin, or Clutch Support Admin role)
-                    const isCreator = interaction.user.id === ticket.creatorId;
+                    // Check if user has permission (staff only for delete)
                     const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
                     const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
-                    
-                    if (!isCreator && !isAdmin && !hasAdminRole) {
+
+                    if (!isAdmin && !hasAdminRole) {
                         await interaction.editReply({
-                            content: 'You do not have permission to delete this ticket.',
+                            content: 'Only staff members can delete tickets.',
                             ephemeral: true
                         });
                         return;
                     }
-                    
+
                     // Get the channel
                     const channel = await interaction.guild.channels.fetch(ticket.channelId);
                     
@@ -1486,11 +1526,11 @@ client.on(Events.InteractionCreate, async interaction => {
             }
             else if (customId.startsWith('close_and_transcribe_')) {
                 await interaction.deferReply({ ephemeral: true });
-                
+
                 try {
                     // Extract ticket ID from the custom ID
                     const ticketId = customId.split('_')[3];
-                    
+
                     // Get the ticket data
                     const ticket = await client.tickets.db.getTicket(ticketId);
                     if (!ticket) {
@@ -1501,19 +1541,18 @@ client.on(Events.InteractionCreate, async interaction => {
                         return;
                     }
 
-                    // Check if user has permission (creator, admin, or Clutch Support Admin role)
-                    const isCreator = interaction.user.id === ticket.creatorId;
+                    // Check if user has permission (staff only for close & transcribe)
                     const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
                     const hasAdminRole = interaction.member.roles.cache.some(role => role.name === 'Clutch Support Admin');
-                    
-                    if (!isCreator && !isAdmin && !hasAdminRole) {
+
+                    if (!isAdmin && !hasAdminRole) {
                         await interaction.editReply({
-                            content: 'You do not have permission to close this ticket.',
+                            content: 'Only staff members can use Close & Transcribe.',
                             ephemeral: true
                         });
                         return;
                     }
-                    
+
                     // Get the channel
                     const channel = await interaction.guild.channels.fetch(ticket.channelId);
                     if (!channel) {

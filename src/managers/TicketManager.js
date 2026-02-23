@@ -1145,144 +1145,87 @@ class TicketManager {
 
     async fixTicketPermissions() {
         console.log('Checking and fixing permissions for all active tickets...');
-        
+
         let fixedCount = 0;
         let errorCount = 0;
-        
+
         for (const [ticketId, ticket] of this.activeTickets.entries()) {
             try {
                 console.log(`Checking permissions for ticket ${ticketId}...`);
-                
+
                 // Fetch the channel
                 const channel = await this.client.channels.fetch(ticket.channelId).catch(err => {
                     console.error(`Error fetching channel for ticket ${ticketId}:`, err);
                     return null;
                 });
-                
+
                 if (!channel) {
                     console.log(`Channel for ticket ${ticketId} not found or no access, skipping`);
                     continue;
                 }
-                
-                // Fix permissions for the ticket channel
+
                 const guild = channel.guild;
-                
-                // Find the Clutch Support Admin role
                 const adminRole = guild.roles.cache.find(role => role.name === 'Clutch Support Admin');
-                
-                // Get the current permission overwrites to preserve added users and roles
-                const currentOverwrites = channel.permissionOverwrites.cache;
-                const preservedOverwrites = [];
-                
-                // Check current permission overwrites for any users or roles that have explicit permission
-                for (const [id, overwrite] of currentOverwrites.entries()) {
-                    // Skip guild.id, bot, and creator (we'll add these explicitly)
-                    if (id === guild.id || id === this.client.user.id || 
-                        id === ticket.creatorId || (adminRole && id === adminRole.id)) {
-                        continue;
-                    }
-                    
-                    // If this user/role has explicit view permission, preserve it
-                    if (overwrite.allow.has(PermissionFlagsBits.ViewChannel)) {
-                        preservedOverwrites.push({
-                            id: id,
-                            allow: [
-                                PermissionFlagsBits.ViewChannel,
-                                PermissionFlagsBits.SendMessages,
-                                PermissionFlagsBits.ReadMessageHistory
-                            ]
-                        });
-                        console.log(`Preserving permissions for ${id} in ticket ${ticketId}`);
-                    }
-                }
-                
-                // Make sure the creator's user is in the cache by trying to fetch them
-                try {
-                    await this.client.users.fetch(ticket.creatorId);
-                } catch (fetchErr) {
-                    console.warn(`Could not fetch ticket creator (ID: ${ticket.creatorId}) for ticket ${ticketId}: ${fetchErr.message}`);
-                    // We'll still include their ID in the permissions, but log a warning
-                }
-                
-                // Update permission overwrites - start with basic ones that don't require fetching
-                const permissionOverwrites = [
-                    {
-                        id: guild.id,
-                        deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
-                    },
-                    {
-                        id: this.client.user.id,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel,
-                            PermissionFlagsBits.SendMessages,
-                            PermissionFlagsBits.ManageMessages
-                        ]
-                    }
-                ];
-                
-                // Only add creator permissions if we can validate they exist
-                const creatorExists = guild.members.cache.has(ticket.creatorId);
-                if (creatorExists) {
-                    permissionOverwrites.push({
-                        id: ticket.creatorId,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel,
-                            PermissionFlagsBits.SendMessages,
-                            PermissionFlagsBits.ReadMessageHistory
-                        ]
-                    });
-                } else {
-                    console.log(`Creator ${ticket.creatorId} for ticket ${ticketId} is not in the guild's cache, skipping permission setup for them`);
-                }
-                
-                // Add the preserved overwrites
-                preservedOverwrites.forEach(overwrite => {
-                    // Verify the ID exists as a valid user or role before adding
-                    const isUser = guild.members.cache.has(overwrite.id);
-                    const isRole = guild.roles.cache.has(overwrite.id);
-                    
-                    if (isUser || isRole) {
-                        permissionOverwrites.push(overwrite);
-                    } else {
-                        console.log(`Skipping permissions for ${overwrite.id} in ticket ${ticketId} - not found in cache`);
-                    }
+
+                // Use .edit() to ENSURE critical permissions exist without touching
+                // any other existing overwrites (manually added users/roles stay intact)
+
+                // 1. Guild @everyone: deny ViewChannel and SendMessages
+                await channel.permissionOverwrites.edit(guild.id, {
+                    ViewChannel: false,
+                    SendMessages: false
                 });
-                
-                // If admin role exists, add permission for that role
+
+                // 2. Bot: allow ViewChannel, SendMessages, ManageMessages
+                await channel.permissionOverwrites.edit(this.client.user.id, {
+                    ViewChannel: true,
+                    SendMessages: true,
+                    ManageMessages: true
+                });
+
+                // 3. Creator: allow access (use API fetch, not cache, to avoid false negatives)
+                try {
+                    const creatorMember = await guild.members.fetch(ticket.creatorId).catch(() => null);
+                    if (creatorMember) {
+                        await channel.permissionOverwrites.edit(ticket.creatorId, {
+                            ViewChannel: true,
+                            SendMessages: true,
+                            ReadMessageHistory: true
+                        });
+                    } else {
+                        console.log(`Creator ${ticket.creatorId} for ticket ${ticketId} not in guild, skipping`);
+                    }
+                } catch (fetchErr) {
+                    console.warn(`Could not set permissions for creator ${ticket.creatorId} in ticket ${ticketId}: ${fetchErr.message}`);
+                }
+
+                // 4. Admin role: allow access (if it exists)
                 if (adminRole) {
-                    permissionOverwrites.push({
-                        id: adminRole.id,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel,
-                            PermissionFlagsBits.SendMessages,
-                            PermissionFlagsBits.ReadMessageHistory
-                        ]
+                    await channel.permissionOverwrites.edit(adminRole.id, {
+                        ViewChannel: true,
+                        SendMessages: true,
+                        ReadMessageHistory: true
                     });
                 }
 
-                // Add auto-roles for this ticket type
+                // 5. Auto-roles: allow access
                 try {
                     const autoRoleIds = await this.db.getAutoRoles(guild.id, ticket.type);
                     for (const roleId of autoRoleIds) {
                         const role = guild.roles.cache.get(roleId);
                         if (role) {
-                            permissionOverwrites.push({
-                                id: roleId,
-                                allow: [
-                                    PermissionFlagsBits.ViewChannel,
-                                    PermissionFlagsBits.SendMessages,
-                                    PermissionFlagsBits.ReadMessageHistory
-                                ]
+                            await channel.permissionOverwrites.edit(roleId, {
+                                ViewChannel: true,
+                                SendMessages: true,
+                                ReadMessageHistory: true
                             });
-                            console.log(`Adding auto-role "${role.name}" to ticket ${ticketId} during permission fix`);
+                            console.log(`Ensured auto-role "${role.name}" on ticket ${ticketId}`);
                         }
                     }
                 } catch (autoRoleError) {
-                    console.error(`Error fetching auto-roles for ticket ${ticketId}:`, autoRoleError);
+                    console.error(`Error applying auto-roles for ticket ${ticketId}:`, autoRoleError);
                 }
 
-                // Set the channel permissions
-                await channel.permissionOverwrites.set(permissionOverwrites);
                 console.log(`Fixed permissions for ticket ${ticketId}`);
                 fixedCount++;
             } catch (error) {
@@ -1290,7 +1233,7 @@ class TicketManager {
                 errorCount++;
             }
         }
-        
+
         console.log(`Permissions fixed for ${fixedCount} tickets. Errors: ${errorCount}`);
         return { fixedCount, errorCount };
     }
