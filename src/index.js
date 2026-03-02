@@ -1172,8 +1172,8 @@ client.on(Events.InteractionCreate, async interaction => {
                     }
                     
                     // Move the channel to the closed category
-                    await channel.setParent(closedCategory.id);
-                    
+                    await channel.setParent(closedCategory.id, { lockPermissions: false });
+
                     // Update channel-specific permissions
                     const channelPermissionOverwrites = [
                         {
@@ -1182,7 +1182,7 @@ client.on(Events.InteractionCreate, async interaction => {
                         },
                         {
                             id: client.user.id,
-                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ManageChannels]
                         }
                     ];
                     
@@ -1373,14 +1373,25 @@ client.on(Events.InteractionCreate, async interaction => {
                             });
                         }
                     } else {
-                        // Regular user archived: show only Reopen button, no transcript
+                        // Regular user archived: show Reopen + staff actions
+                        // Staff-only guards on the handlers protect Close & Transcribe and Delete
                         const closedMessage = new ActionRowBuilder()
                             .addComponents(
                                 new ButtonBuilder()
                                     .setCustomId(`reopen_ticket_${ticketId}`)
                                     .setLabel('Reopen')
                                     .setStyle(ButtonStyle.Success)
-                                    .setEmoji('🔓')
+                                    .setEmoji('🔓'),
+                                new ButtonBuilder()
+                                    .setCustomId(`close_and_transcribe_${ticketId}`)
+                                    .setLabel('Close & Transcribe')
+                                    .setStyle(ButtonStyle.Primary)
+                                    .setEmoji('📝'),
+                                new ButtonBuilder()
+                                    .setCustomId(`confirm_delete_${ticketId}`)
+                                    .setLabel(ticketType === 'support' ? 'Delete Ticket' : `Delete ${ticketType.charAt(0).toUpperCase() + ticketType.slice(1)}`)
+                                    .setStyle(ButtonStyle.Danger)
+                                    .setEmoji('🗑️')
                             );
 
                         await channel.send({
@@ -1618,8 +1629,8 @@ client.on(Events.InteractionCreate, async interaction => {
                     }
                     
                     // Move the channel to the closed category
-                    await channel.setParent(closedCategory.id);
-                    
+                    await channel.setParent(closedCategory.id, { lockPermissions: false });
+
                     // Update channel-specific permissions
                     const channelPermissionOverwrites = [
                         {
@@ -1628,7 +1639,7 @@ client.on(Events.InteractionCreate, async interaction => {
                         },
                         {
                             id: client.user.id,
-                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages]
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ManageChannels]
                         }
                     ];
                     

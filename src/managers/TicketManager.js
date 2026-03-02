@@ -210,7 +210,8 @@ class TicketManager {
                     allow: [
                         PermissionFlagsBits.ViewChannel,
                         PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ReadMessageHistory
+                        PermissionFlagsBits.ReadMessageHistory,
+                        PermissionFlagsBits.AttachFiles
                     ]
                 });
                 
@@ -308,6 +309,13 @@ class TicketManager {
                     components: [button]
                 });
             } else {
+                // Send welcome message to support ticket creators only
+                if (type === 'support') {
+                    await channel.send({
+                        content: `Hey <@${creator.id}>, welcome to your support ticket! How can we assist you?`
+                    });
+                }
+
                 // Check if creator is staff (has Clutch Support Admin role or ManageChannels permission)
                 let creatorIsStaff = false;
                 try {
@@ -979,8 +987,8 @@ class TicketManager {
                 });
             }
             
-            // Move the channel back to the original category
-            await channel.setParent(category.id);
+            // Move the channel back to the original category (lockPermissions: false to keep bot access)
+            await channel.setParent(category.id, { lockPermissions: false });
             
             // Update permissions for reopened ticket - don't make it visible to everyone
             // First, deny access for everyone
@@ -998,7 +1006,8 @@ class TicketManager {
                     await channel.permissionOverwrites.edit(ticket.creatorId, {
                         ViewChannel: true,
                         SendMessages: true,
-                        ReadMessageHistory: true
+                        ReadMessageHistory: true,
+                        AttachFiles: true
                     });
                     console.log(`Added permissions for ticket creator ${ticket.creatorId}`);
                 } else {
@@ -1056,7 +1065,7 @@ class TicketManager {
                 const messages = await channel.messages.fetch({ limit: 10 });
                 const reopenMessages = messages.filter(msg => 
                     msg.author.id === this.client.user.id && 
-                    msg.content.includes('This ticket has been closed') &&
+                    (msg.content.includes('This ticket has been closed') || msg.content.includes('has been archived')) &&
                     msg.components.length > 0 &&
                     msg.components[0].components.some(c => c.customId && c.customId.startsWith('reopen_ticket_'))
                 );
@@ -1190,7 +1199,8 @@ class TicketManager {
                         await channel.permissionOverwrites.edit(ticket.creatorId, {
                             ViewChannel: true,
                             SendMessages: true,
-                            ReadMessageHistory: true
+                            ReadMessageHistory: true,
+                            AttachFiles: true
                         });
                     } else {
                         console.log(`Creator ${ticket.creatorId} for ticket ${ticketId} not in guild, skipping`);
